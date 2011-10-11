@@ -1,0 +1,6 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+t/MIME-EcoEncode.t
+lib/MIME/EcoEncode.pm
