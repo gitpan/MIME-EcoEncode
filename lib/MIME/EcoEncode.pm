@@ -11,7 +11,7 @@ our @ISA = qw(Exporter);
 our @EXPORT_OK = qw($JCODE_COMPAT $VERSION);
 
 our @EXPORT = qw(mime_eco);
-our $VERSION = '0.30';
+our $VERSION = '0.31';
 
 our $JCODE_COMPAT = 0; # compatible with Jcode
 

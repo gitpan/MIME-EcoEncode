@@ -1,5 +1,9 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.31  2011-10-12
+	- update Makefile.PL (added LICENSE)
+	- use "make dist" command for tarball
+
 0.30  2011-10-11
 	- rename : MimeEco -> MIME::EcoEncode
 
