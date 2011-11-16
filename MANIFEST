@@ -2,6 +2,6 @@ Changes
 lib/MIME/EcoEncode.pm
 Makefile.PL
 MANIFEST			This list of files
+META.yml
 README
 t/MIME-EcoEncode.t
-META.yml                                 Module meta-data (added by MakeMaker)

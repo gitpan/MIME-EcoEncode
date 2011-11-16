@@ -11,7 +11,7 @@ our @ISA = qw(Exporter);
 our @EXPORT_OK = qw($JCODE_COMPAT $VERSION);
 
 our @EXPORT = qw(mime_eco);
-our $VERSION = '0.31';
+our $VERSION = '0.32';
 
 our $JCODE_COMPAT = 0; # compatible with Jcode
 
@@ -83,9 +83,7 @@ sub mime_eco {
 		    &$refsub($word, 1 +
 				    ($JCODE_COMPAT ? length($result) : $pos),
 				    $lf, $bpl, \$np);
-		if ($tmp !~ /^\s/) {
-		    $result .= ' ';
-		}
+		$result .= ($tmp =~ /^ /) ? $lf : ' ';
 	    }
 	    $result .= $tmp;
 	    $pos = $np;
@@ -190,8 +188,8 @@ sub add_enc_word_7bit_jis {
 	    int(($chunk_len + $w_len + ($k_in ? 3 : 0) + 2) / 3) * 4 + 18;
 
 	if ($sp + $enc_len > $bpl) {
-            if ($chunk eq '') { # size over at the first time
-                $result .= "$lf ";
+            if ($chunk_len == 0) { # size over at the first time
+		$result = ' ';
             }
             else {
 		if ($k_in_bak) {
@@ -256,8 +254,8 @@ sub add_enc_word_utf8 {
 	$enc_len = int(($chunk_len + $w_len + 2) / 3) * 4 + 12;
 
 	if ($sp + $enc_len > $bpl) {
-	    if ($chunk eq '') { # size over at the first time
-		$result .= "$lf ";
+	    if ($chunk_len == 0) { # size over at the first time
+		$result = ' ';
 	    }
 	    else {
 		$result .= HEAD .
@@ -296,6 +294,13 @@ This module implements RFC 2047 Mime Header Encoding.
 =head2 GLOBAL VARIABLES
 
 $MIME::EcoEncode::JCODE_COMPAT # compatible with Jcode (0 or 1)
+
+=head2 OPTIONS
+
+  $encoded = mime_eco($str, $charset, $lf, $bpl);
+               # $charset : 'UTF-8' or 'ISO-2022-JP'
+               # $lf      : line feed (default: "\n")
+               # $bpl     : bytes per line (default: 76)
 
 =head1 SEE ALSO
 

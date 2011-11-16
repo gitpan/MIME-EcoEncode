@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 18;
+use Test::More tests => 20;
 #use Test::More 'no_plan';
 BEGIN { use_ok('MIME::EcoEncode') };
 
@@ -69,6 +69,17 @@ is(mime_eco($str, 'ISO-2022-JP'),
    "=?ISO-2022-JP?B?GyRCJCIkJCQmJCgkKhsoQiAbJEIlIiUkJSYlKCUqGyhCIA==?=\n" .
    " =?ISO-2022-JP?B?GyhJMTIzNDUbKEI=?= A-I-U-E-O",
    'ASCII+WideCharacter+HankakuKana (ISO-2022-JP)');
+
+
+$str = 'Subject: Re: あ A い I';
+is(mime_eco($str, 'UTF-8', "|\n", 17),
+   "Subject: Re:|\n =?UTF-8?B?44GC?=|\n A|\n =?UTF-8?B?44GE?=|\n I",
+   '$lf="|\n", $bpf=17 (UTF-8)');
+from_to($str, 'UTF-8', '7bit-jis');
+is(mime_eco($str, 'ISO-2022-JP', "|\n", 31),
+   "Subject: Re:|\n =?ISO-2022-JP?B?GyRCJCIbKEI=?=|\n A|\n" .
+   " =?ISO-2022-JP?B?GyRCJCQbKEI=?=|\n I",
+   '$lf="|\n", $bpf=31 (ISO-2022-JP)');
 
 
 $str = 'Subject: Re: あ A い I う U え E お O';

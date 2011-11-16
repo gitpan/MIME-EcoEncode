@@ -1,5 +1,8 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.32  2011-11-16
+	- support options: $lf and $bpl
+
 0.31  2011-10-12
 	- update Makefile.PL (added LICENSE)
 	- use "make dist" command for tarball
