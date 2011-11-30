@@ -1,5 +1,8 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.34  2011-11-30
+	- improve performance : add_enc_word_utf8()
+
 0.33  2011-11-29
 	- bug fix & improve performance : add_enc_word_utf8()
 

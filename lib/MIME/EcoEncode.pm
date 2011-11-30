@@ -11,7 +11,7 @@ our @ISA = qw(Exporter);
 our @EXPORT_OK = qw($JCODE_COMPAT $VERSION);
 
 our @EXPORT = qw(mime_eco);
-our $VERSION = '0.33';
+our $VERSION = '0.34';
 
 our $JCODE_COMPAT = 0; # compatible with Jcode
 
@@ -236,7 +236,7 @@ sub add_enc_word_utf8 {
     my $w_len;
     my $enc_len;
     my $result = '';
-    my $str_pos;
+    my $str_pos = 0;
     my $str_len = length($str);
 
     # encoded size + sp (12 is HEAD + TAIL)
@@ -248,7 +248,6 @@ sub add_enc_word_utf8 {
 
     utf8::decode($str); # UTF8 flag on
 
-    $str_pos = 0;
     for my $w (split //, $str) {
 	utf8::encode($w); # UTF8 flag off
 	$w_len = length($w); # size of one character
@@ -264,6 +263,7 @@ sub add_enc_word_utf8 {
 		$result .= HEAD .
 		    MIME::Base64::encode_base64($chunk, '') . TAIL . "$lf ";
 	    }
+	    $str_pos += $chunk_len;
 
 	    # encoded size (13 is 12 + space)
             $ep_tmp = int(($str_len - $str_pos + 2) / 3) * 4 + 13;
@@ -280,7 +280,6 @@ sub add_enc_word_utf8 {
 	    $chunk .= $w;
 	    $chunk_len += $w_len;
 	}
-	$str_pos += $w_len;
     }
     $$ep = $ep_tmp;
     return $result . HEAD . MIME::Base64::encode_base64($chunk, '') . TAIL;
