@@ -1,5 +1,12 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.50  2011-12-21
+	- Improved encoding for continuous space/tab character
+	- Added support for recognizing 'comment's
+	  in structured field bodies
+	- Added option : $mode
+	- Deleted global variable : $MIME::EcoEncode::JCODE_COMPAT
+
 0.34  2011-11-30
 	- improve performance : add_enc_word_utf8()
 
