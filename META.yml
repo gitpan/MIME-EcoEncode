@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                MIME-EcoEncode
-version:             0.50
+version:             0.60
 abstract:            MIME Encoding (Economical)
 license:             perl
 author:              

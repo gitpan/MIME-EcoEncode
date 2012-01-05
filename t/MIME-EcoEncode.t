@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 31;
+use Test::More tests => 35;
 #use Test::More 'no_plan';
 BEGIN { use_ok('MIME::EcoEncode') };
 
@@ -56,11 +56,19 @@ is(mime_eco($str, 'ISO-2022-JP'),
 
 
 $str = '  ' . 'あ' . '  ';
-is(mime_eco($str, 'UTF-8'), '=?UTF-8?B?ICDjgYIgIA==?=',
+is(mime_eco($str, 'UTF-8'), '  =?UTF-8?B?44GC?=  ',
    '\s\s+WCHAR+\s\s (UTF-8)');
 from_to($str, 'UTF-8', '7bit-jis');
-is(mime_eco($str, 'ISO-2022-JP'), '=?ISO-2022-JP?B?ICAbJEIkIhsoQiAg?=',
+is(mime_eco($str, 'ISO-2022-JP'), '  =?ISO-2022-JP?B?GyRCJCIbKEI=?=  ',
    '\s\s+WCHAR+\s\s (ISO-2022-JP)');
+
+
+$str = '  ' . 'あ' . '  ';
+is(mime_eco($str, 'UTF-8', undef, undef, undef, 0), '=?UTF-8?B?ICDjgYIgIA==?=',
+   '$lss=0 (UTF-8)');
+from_to($str, 'UTF-8', '7bit-jis');
+is(mime_eco($str, 'ISO-2022-JP', undef, undef, undef, 0),
+   '=?ISO-2022-JP?B?ICAbJEIkIhsoQiAg?=', '$lss=0 (ISO-2022-JP)');
 
 
 $str = "  Subject:  Re:  [XXXX 0123]  Re:  アa  イi  ウu  A-I-U\n";
@@ -92,12 +100,12 @@ is(mime_eco($str, 'ISO-2022-JP'),
 $str = 'Subject: Re: あ A い I';
 is(mime_eco($str, 'UTF-8', "|\n", 17),
    "Subject: Re:|\n =?UTF-8?B?44GC?=|\n A|\n =?UTF-8?B?44GE?=|\n I",
-   '$lf="|\n", $bpf=17 (UTF-8)');
+   '$lf="|\n", $bpl=17 (UTF-8)');
 from_to($str, 'UTF-8', '7bit-jis');
 is(mime_eco($str, 'ISO-2022-JP', "|\n", 31),
    "Subject: Re:|\n =?ISO-2022-JP?B?GyRCJCIbKEI=?=|\n A|\n" .
    " =?ISO-2022-JP?B?GyRCJCQbKEI=?=|\n I",
-   '$lf="|\n", $bpf=31 (ISO-2022-JP)');
+   '$lf="|\n", $bpl=31 (ISO-2022-JP)');
 
 
 $str = 'Subject: Re: あ A い I う U え E お O';
@@ -148,3 +156,20 @@ is(mime_eco($str, 'ISO-2022-JP'),
    $from . '  (=?ISO-2022-JP?B?GyRCMiwbKEI=?=' . "\n "
    . '=?ISO-2022-JP?B?GyRCOmobKEIgGyRCOnk7UhsoQg==?=)',
    'structured header (ISO-2022-JP)');
+
+
+$str = '    (あ)  (((あ)))  (あ  (あ))  (あ  (あ))    ';
+is(mime_eco($str, 'UTF-8'),
+   '    (=?UTF-8?B?44GC?=)  (((=?UTF-8?B?44GC?=)))  (=?UTF-8?B?44GC?= ' .
+   "\n" .
+   ' (=?UTF-8?B?44GC?=))  (=?UTF-8?B?44GC?=  (=?UTF-8?B?44GC?=))    ',
+   'comment in comment (UTF-8)');
+from_to($str, 'UTF-8', '7bit-jis');
+is(mime_eco($str, 'ISO-2022-JP'),
+   '    (=?ISO-2022-JP?B?GyRCJCIbKEI=?=)' .
+   '  (((=?ISO-2022-JP?B?GyRCJCIbKEI=?=))) ' .
+   "\n" .
+   ' (=?ISO-2022-JP?B?GyRCJCIbKEI=?=  (=?ISO-2022-JP?B?GyRCJCIbKEI=?=)) ' .
+   "\n" .
+   ' (=?ISO-2022-JP?B?GyRCJCIbKEI=?=  (=?ISO-2022-JP?B?GyRCJCIbKEI=?=))    ',
+   'comment in comment (ISO-2022-JP)');
