@@ -1,5 +1,9 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.61  2012-01-13
+	- Improved performance
+	- Corrected the mistakes
+
 0.60  2012-01-05
 	- Added option : $lss
 	- Added support 'comment' in 'comment' (max depth is 3)

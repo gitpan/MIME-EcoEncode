@@ -7,31 +7,42 @@ use warnings;
 require Exporter;
 
 our @ISA = qw(Exporter);
-
-our @EXPORT_OK = qw($JCODE_COMPAT $VERSION);
-
+our @EXPORT_OK = qw($VERSION);
 our @EXPORT = qw(mime_eco);
-our $VERSION = '0.60';
+our $VERSION = '0.61';
+
+use MIME::Base64;
 
 use constant HEAD   => '=?UTF-8?B?';
 use constant HEAD_J => '=?ISO-2022-JP?B?';
 use constant TAIL   => '?=';
 
+our $LF;  # line feed
+our $BPL; # bytes per line
+
+our $ADD_ENC_WORD;
+our $REG_RP;
+
 sub mime_eco {
     my $str = shift;
     my $charset = shift || 'UTF-8';
-    my $lf  = shift || "\n";
-    my $bpl = shift || 76;
+
+    our $LF  = shift || "\n"; # line feed
+    our $BPL = shift || 76;   # bytes per line
+
     my $mode = shift;
     $mode = 2 unless defined $mode;
     my $lss = shift;
     $lss = 25 unless defined $lss;
 
+    our $ADD_ENC_WORD;
+    our $REG_RP;
+
     my $csn;
     my $pos;
     my $np;
     my $refsub;
-    my $reg;
+    my $reg_rp1;
 
     my ($w1, $w1_len, $w2);
     my ($sps, $sps_len);
@@ -85,20 +96,29 @@ sub mime_eco {
     if ($mode == 2) {
 	$mode = ($w1 =~ /^(?:Subject:|Comments:)$/i) ? 0 : 1;
     }
-    if ($csn == 1) {
-	$refsub = ($mode == 1) ?
-	    \&add_enc_word_sth : \&add_enc_word_utf8;
+    if ($mode == 1) {
+	$refsub = \&add_enc_word_sth;
+	if ($csn == 1) {
+	    $reg_rp1 = qr/\)\,?$/;
+            $ADD_ENC_WORD = \&add_enc_word_utf8;
+            $REG_RP = qr/(\){1,3}\,?)$/;
+        }
+        else {
+	    $reg_rp1 = qr/\e\(B[\x21-\x7e]*\)\,?$/;
+            $ADD_ENC_WORD = \&add_enc_word_7bit_jis;
+            $REG_RP = qr/\e\(B[\x21-\x7e]*?(\){1,3}\,?)$/;
+        }
     }
     else {
-	$refsub = ($mode == 1) ?
-            \&add_enc_word_sth : \&add_enc_word_7bit_jis;
+        $refsub = ($csn == 1) ?
+            \&add_enc_word_utf8 : \&add_enc_word_7bit_jis;
     }
 
     while ($str =~ /(\s*)(\S+)/gc) {
 	($sps, $w2) = ($1, $2);
 	if ($w2 =~ /[^\x21-\x7e]/) {
 	    $sps_len = length($sps);
-	    if ($ascii) { # "ASCII \s+ WCHAR"
+	    if ($ascii) { # "ASCII \s+ non-ASCII"
 		$sp1_bak = $sp1;
 		$sp1 = chop($sps);
 		$w1 .= $sps if $sps_len > $lss;
@@ -108,8 +128,8 @@ sub mime_eco {
 		    $pos = $w1_len;
 		}
 		else {
-		    if (($count > 1) and ($pos + $w1_len + 1 > $bpl)) {
-                        $result .= "$lf$sp1_bak$w1";
+		    if (($count > 1) and ($pos + $w1_len + 1 > $BPL)) {
+                        $result .= "$LF$sp1_bak$w1";
                         $pos = $w1_len + 1;
                     }
                     else {
@@ -118,10 +138,10 @@ sub mime_eco {
                     }
 		}
 		if ($sps_len <= $lss) {
-		    if ($pos + $sps_len - 1 > $bpl) {
-			$result .= substr($sps, 0, $bpl - $pos) . $lf
-			    . substr($sps, $bpl - $pos);
-			$pos += $sps_len - $bpl - 1;
+		    if ($pos + $sps_len - 1 > $BPL) {
+			$result .= substr($sps, 0, $BPL - $pos) . $LF
+			    . substr($sps, $BPL - $pos);
+			$pos += $sps_len - $BPL - 1;
 		    }
 		    else {
 			$result .= $sps;
@@ -130,27 +150,23 @@ sub mime_eco {
 		}
 		$w1 = $w2;
 	    }
-	    else { # "WCHAR \s+ WCHAR"
+	    else { # "non-ASCII \s+ non-ASCII"
 		if (($mode == 1) and ($sps_len <= $lss)) {
-		    $reg = ($csn == 1) ?
-			qr/\)\,?$/ : qr/\e\(B[\x21-\x7e]*\)\,?$/;
-		    if ($w1 =~ /$reg/ or $w2 =~ /^\(/) {
+		    if ($w1 =~ /$reg_rp1/ or $w2 =~ /^\(/) {
 			if ($count == 0) {
-			    $result .=
-				&$refsub($w1, $pos, $lf, $bpl, \$np, 0, $csn);
+			    $result .= &$refsub($w1, $pos, \$np, 0);
 			}
 			else {
-			    $tmp = &$refsub($w1, 1 + $pos,
-					    $lf, $bpl, \$np, 0, $csn);
+			    $tmp = &$refsub($w1, 1 + $pos, \$np, 0);
 			    $result .= ($tmp =~ s/^ /$sp1/) ?
-				"$lf$tmp" : "$sp1$tmp";
+				"$LF$tmp" : "$sp1$tmp";
 			}
 			$pos = $np;
 			$sp1 = chop($sps);
-			if ($pos + $sps_len - 1 > $bpl) {
-			    $result .= substr($sps, 0, $bpl - $pos) . $lf
-				. substr($sps, $bpl - $pos);
-			    $pos += $sps_len - $bpl - 1;
+			if ($pos + $sps_len - 1 > $BPL) {
+			    $result .= substr($sps, 0, $BPL - $pos) . $LF
+				. substr($sps, $BPL - $pos);
+			    $pos += $sps_len - $BPL - 1;
 			}
 			else {
 			    $result .= $sps;
@@ -168,7 +184,7 @@ sub mime_eco {
 	    }
 	    $ascii = 0;
 	}
-	else { # "ASCII \s+ ASCII" or "WCHAR \s+ ASCII"
+	else { # "ASCII \s+ ASCII" or "non-ASCII \s+ ASCII"
 	    $w1_len = length($w1);
 	    if ($ascii) { # "ASCII \s+ ASCII"
 		if ($count == 0) {
@@ -176,8 +192,8 @@ sub mime_eco {
                     $pos = $w1_len;
                 }
 		else {
-		    if (($count > 1) and ($pos + $w1_len + 1 > $bpl)) {
-                        $result .= "$lf$sp1$w1";
+		    if (($count > 1) and ($pos + $w1_len + 1 > $BPL)) {
+                        $result .= "$LF$sp1$w1";
                         $pos = $w1_len + 1;
                     }
                     else {
@@ -186,29 +202,27 @@ sub mime_eco {
                     }
 		}
 	    }
-	    else { # "WCHAR \s+ ASCII"
+	    else { # "non-ASCII \s+ ASCII"
 		if ($count == 0) {
-		    $result .=
-			&$refsub($w1, $pos, $lf, $bpl, \$np, 0, $csn);
+		    $result .= &$refsub($w1, $pos, \$np, 0);
                     $pos = $np;
                 }
 		else {
-		    $tmp =
-			&$refsub($w1, 1 + $pos, $lf, $bpl, \$np, 0, $csn);
-		    $result .= ($tmp =~ s/^ /$sp1/) ? "$lf$tmp" : "$sp1$tmp";
+		    $tmp = &$refsub($w1, 1 + $pos, \$np, 0);
+		    $result .= ($tmp =~ s/^ /$sp1/) ? "$LF$tmp" : "$sp1$tmp";
 		    $pos = $np;
 		}
 	    }
 	    $sps_len = length($sps);
-	    if ($pos >= $bpl) {
+	    if ($pos >= $BPL) {
 		$sp1 = substr($sps, 0, 1);
 		$w2 = substr($sps, 1) . $w2;
 	    }
-	    elsif ($pos + $sps_len - 1 > $bpl) {
-		$result .= substr($sps, 0, $bpl - $pos);
-		$sp1 = substr($sps, $bpl - $pos, 1);
-		$w2 = substr($sps, $bpl - $pos + 1) . $w2;
-		$pos = $bpl;
+	    elsif ($pos + $sps_len - 1 > $BPL) {
+		$result .= substr($sps, 0, $BPL - $pos);
+		$sp1 = substr($sps, $BPL - $pos, 1);
+		$w2 = substr($sps, $BPL - $pos + 1) . $w2;
+		$pos = $BPL;
 	    }
 	    else {
 		$sp1 = chop($sps);
@@ -229,8 +243,8 @@ sub mime_eco {
 	}
 	else {
 	    $w1_len = length($w1);
-	    if (($count > 1) and ($pos + $w1_len + 1 > $bpl)) {
-		$result .= "$lf$sp1$w1";
+	    if (($count > 1) and ($pos + $w1_len + 1 > $BPL)) {
+		$result .= "$LF$sp1$w1";
 	    }
 	    else {
 		$result .= "$sp1$w1";
@@ -242,28 +256,23 @@ sub mime_eco {
 	if ($count == 0) {
 	    if ($sps_len > $lss) {
 		$w1 .= substr($sps, 0, $sps_len - $lss);
-		$result .=
-		    &$refsub($w1, $pos, $lf, $bpl, \$np, $lss, $csn)
-			. substr($sps, $sps_len - $lss);
+		$result .= &$refsub($w1, $pos, \$np, $lss) .
+		    substr($sps, $sps_len - $lss);
 	    }
 	    else {
-		$result .=
-		    &$refsub($w1, $pos, $lf, $bpl, \$np, $sps_len, $csn) .
-                        $sps;
+		$result .= &$refsub($w1, $pos, \$np, $sps_len) . $sps;
 	    }
 	}
 	else {
 	    if ($sps_len > $lss) {
 		$w1 .= substr($sps, 0, $sps_len - $lss);
-		$tmp = &$refsub($w1, 1 + $pos, $lf, $bpl, \$np, $lss, $csn)
-		    . substr($sps, $sps_len - $lss);
+		$tmp = &$refsub($w1, 1 + $pos, \$np, $lss) .
+		    substr($sps, $sps_len - $lss);
 	    }
 	    else {
-		$tmp =
-		    &$refsub($w1, 1 + $pos, $lf, $bpl, \$np, $sps_len, $csn)
-			. $sps;
+		$tmp = &$refsub($w1, 1 + $pos, \$np, $sps_len) . $sps;
 	    }
-	    $result .= ($tmp =~ s/^ /$sp1/) ? "$lf$tmp" : "$sp1$tmp";
+	    $result .= ($tmp =~ s/^ /$sp1/) ? "$LF$tmp" : "$sp1$tmp";
 	}
     }
     return $trailing_crlf ? $result . $trailing_crlf : $result;
@@ -272,50 +281,41 @@ sub mime_eco {
 
 # add encoded-word (for structured header)
 #   parameters:
-#     str : 7bit-jis string
 #     sp  : start position (indentation of the first line)
-#     lf  : line feed (default: "\n")
-#     bpl : bytes per line (default: 76)
 #     ep  : end position of last line (call by reference)
 #     rll : room of last line (default: 0)
-#     csn : charset number
 sub add_enc_word_sth {
-    my($str, $sp, $lf, $bpl, $ep, $rll, $csn) = @_;
+    my ($str, $sp, $ep, $rll) = @_;
 
-    my ($rb1, $rb2); # '(' and ')' : round brackets
-    my ($rb1_len, $rb2_len) = (0, 0);
-    my $reg;
-    my $refsub;
+    our $BPL; # bytes per line
+
+    our $ADD_ENC_WORD;
+    our $REG_RP;
+
+    my ($lp, $rp); # '(' & ')' : left/right parenthesis
+    my ($lp_len, $rp_len) = (0, 0);
     my $tmp;
 
-    if ($csn == 1) {
-	$reg = qr/(\){1,3}\,?)$/;
-	$refsub = \&add_enc_word_utf8;
-    }
-    else {
-	$reg = qr/\e\(B[\x21-\x7e]*?(\){1,3}\,?)$/;
-	$refsub = \&add_enc_word_7bit_jis;
-    }
     if ($str =~ s/^(\({1,3})//) {
-	$rb1 = $1;
-	$rb1_len = length($rb1);
-	$sp += $rb1_len;
+	$lp = $1;
+	$lp_len = length($lp);
+	$sp += $lp_len;
     }
-    if ($str =~ /$reg/) {
-	$rb2 = $1;
-	$rb2_len = length($rb2);
-	$rll = $rb2_len;
-	substr($str, -$rb2_len) = '';
+    if ($str =~ /$REG_RP/) {
+	$rp = $1;
+	$rp_len = length($rp);
+	$rll = $rp_len;
+	substr($str, -$rp_len) = '';
     }
-    $tmp = &$refsub($str, $sp, $lf, $bpl, $ep, $rll, $csn);
-    if ($rb1_len > 0) {
-	if ($tmp !~ s/^ / $rb1/) {
-	    $tmp = $rb1 . $tmp;
+    $tmp = &$ADD_ENC_WORD($str, $sp, $ep, $rll);
+    if ($lp_len > 0) {
+	if ($tmp !~ s/^ / $lp/) {
+	    $tmp = $lp . $tmp;
 	}
     }
-    if ($rb2_len > 0) {
-	$tmp .= $rb2;
-	$$ep += $rb2_len;
+    if ($rp_len > 0) {
+	$tmp .= $rp;
+	$$ep += $rp_len;
     }
     return $tmp;
 }
@@ -323,10 +323,12 @@ sub add_enc_word_sth {
 
 # add encoded-word for 7bit-jis string
 sub add_enc_word_7bit_jis {
-    require MIME::Base64;
-    my($str, $sp, $lf, $bpl, $ep, $rll, $csn) = @_;
+    my ($str, $sp, $ep, $rll) = @_;
 
     return '' if $str eq '';
+
+    our $LF;  # line feed
+    our $BPL; # bytes per line
 
     my $k_in = 0; # ascii: 0, zen: 1 or 2, han: 9
     my $k_in_bak = 0;
@@ -344,11 +346,11 @@ sub add_enc_word_7bit_jis {
     # encoded size + sp (18 is HEAD_J + TAIL)
     my $ep_tmp = int(($str_len + 2) / 3) * 4 + 18 + $sp;
 
-    if ($ep_tmp + $rll <= $bpl) {
+    if ($ep_tmp + $rll <= $BPL) {
 	$$ep = $ep_tmp;
-	return HEAD_J . MIME::Base64::encode_base64($str, '') . TAIL;
+	return HEAD_J . encode_base64($str, '') . TAIL;
     }
-    $ll_flag = 1 if $ep_tmp <= $bpl;
+    $ll_flag = 1 if $ep_tmp <= $BPL;
     while ($str =~ /\e(..)|(.)/g) {
 	($ec, $c) = ($1, $2);
 	if (defined $ec) {
@@ -391,7 +393,7 @@ sub add_enc_word_7bit_jis {
 	$enc_len =
 	    int(($chunk_len + $w_len + ($k_in ? 3 : 0) + 2) / 3) * 4 + 18;
 
-	if ($sp + $enc_len > $bpl) {
+	if ($sp + $enc_len > $BPL) {
             if ($chunk_len == 0) { # size over at the first time
 		$result = ' ';
             }
@@ -401,18 +403,17 @@ sub add_enc_word_7bit_jis {
 		    $w = "\e$ec_bak" . $w;
 		    $w_len += 3;
 		}
-                $result .= HEAD_J .
-		    MIME::Base64::encode_base64($chunk, '') . TAIL . "$lf ";
+                $result .= HEAD_J . encode_base64($chunk, '') . TAIL . "$LF ";
             }
 	    $str_pos = pos($str);
 
 	    # encoded size (19 is 18 + space)
 	    $ep_tmp = int(($str_len - $str_pos + $w_len + 2) / 3) * 4 + 19;
-	    if ($ep_tmp + $rll <= $bpl) {
+	    if ($ep_tmp + $rll <= $BPL) {
 		$chunk = $w . substr($str, $str_pos);
 		last;
 	    }
-	    $ll_flag = 1 if $ep_tmp <= $bpl;
+	    $ll_flag = 1 if $ep_tmp <= $BPL;
             $chunk = $w;
             $chunk_len = $w_len;
             $sp = 1; # 1 is top space
@@ -424,8 +425,7 @@ sub add_enc_word_7bit_jis {
 		    $w = "\e$ec_bak" . $w;
 		    $w_len += 3;
 		}
-		$result .= HEAD_J .
-		    MIME::Base64::encode_base64($chunk, '') . TAIL . "$lf ";
+		$result .= HEAD_J . encode_base64($chunk, '') . TAIL . "$LF ";
 		$ep_tmp = int(($w_len + 2) / 3) * 4 + 19;
 		$chunk = $w;
 		last;
@@ -438,16 +438,18 @@ sub add_enc_word_7bit_jis {
 	$w_len = 0;
     }
     $$ep = $ep_tmp;
-    return $result . HEAD_J . MIME::Base64::encode_base64($chunk, '') . TAIL;
+    return $result . HEAD_J . encode_base64($chunk, '') . TAIL;
 }
 
 
 # add encoded-word for utf8 string
 sub add_enc_word_utf8 {
-    require MIME::Base64;
-    my($str, $sp, $lf, $bpl, $ep, $rll, $csn) = @_;
+    my ($str, $sp, $ep, $rll) = @_;
 
     return '' if $str eq '';
+
+    our $LF;  # line feed
+    our $BPL; # bytes per line
 
     my ($chunk, $chunk_len) = ('', 0);
     my $w_len;
@@ -458,21 +460,22 @@ sub add_enc_word_utf8 {
 
     # encoded size + sp (12 is HEAD + TAIL)
     my $ep_tmp = int(($str_len + 2) / 3) * 4 + 12 + $sp;
-    if ($ep_tmp + $rll <= $bpl) {
+
+    if ($ep_tmp + $rll <= $BPL) {
 	$$ep = $ep_tmp;
-	return HEAD . MIME::Base64::encode_base64($str, '') . TAIL;
+	return HEAD . encode_base64($str, '') . TAIL;
     }
 
     utf8::decode($str); # UTF8 flag on
 
-    if ($ep_tmp <= $bpl) {
+    if ($ep_tmp <= $BPL) {
 	my $w = chop($str);
 	utf8::encode($w); # UTF8 flag off
 	$$ep = int((length($w) + 2) / 3) * 4 + 13; # 13 is 12 + space
 	utf8::encode($str); # UTF8 flag off
 	$result = ($str eq '') ? ' ' :
-	    HEAD . MIME::Base64::encode_base64($str, '') . TAIL . "$lf ";
-	return $result . HEAD . MIME::Base64::encode_base64($w, '') . TAIL;
+	    HEAD . encode_base64($str, '') . TAIL . "$LF ";
+	return $result . HEAD . encode_base64($w, '') . TAIL;
     }
 
     for my $w (split //, $str) {
@@ -482,31 +485,29 @@ sub add_enc_word_utf8 {
 	# encoded size (12 is HEAD + TAIL)
 	$enc_len = int(($chunk_len + $w_len + 2) / 3) * 4 + 12;
 
-	if ($sp + $enc_len > $bpl) {
+	if ($sp + $enc_len > $BPL) {
 	    if ($chunk_len == 0) { # size over at the first time
 		$result = ' ';
 	    }
 	    else {
-		$result .= HEAD .
-		    MIME::Base64::encode_base64($chunk, '') . TAIL . "$lf ";
+		$result .= HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
 	    }
 	    $str_pos += $chunk_len;
 
 	    # encoded size (13 is 12 + space)
             $ep_tmp = int(($str_len - $str_pos + 2) / 3) * 4 + 13;
-            if ($ep_tmp + $rll <= $bpl) {
+            if ($ep_tmp + $rll <= $BPL) {
 		utf8::encode($str); # UTF8 flag off
                 $chunk = substr($str, $str_pos);
                 last;
             }
-	    if ($ep_tmp <= $bpl) {
+	    if ($ep_tmp <= $BPL) {
 		$w = chop($str);
 		utf8::encode($w); # UTF8 flag off
 		$w_len = length($w);
 		utf8::encode($str); # UTF8 flag off
 		$chunk = substr($str, $str_pos);
-		$result .= HEAD .
-		    MIME::Base64::encode_base64($chunk, '') . TAIL . "$lf ";
+		$result .= HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
 		$ep_tmp = int(($w_len + 2) / 3) * 4 + 13; # 13 is 12 + space
 		$chunk = $w;
 		last;
@@ -521,7 +522,7 @@ sub add_enc_word_utf8 {
 	}
     }
     $$ep = $ep_tmp;
-    return $result . HEAD . MIME::Base64::encode_base64($chunk, '') . TAIL;
+    return $result . HEAD . encode_base64($chunk, '') . TAIL;
 }
 
 1;
