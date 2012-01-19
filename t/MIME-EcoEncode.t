@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 35;
+use Test::More tests => 43;
 #use Test::More 'no_plan';
 BEGIN { use_ok('MIME::EcoEncode') };
 
@@ -173,3 +173,44 @@ is(mime_eco($str, 'ISO-2022-JP'),
    "\n" .
    ' (=?ISO-2022-JP?B?GyRCJCIbKEI=?=  (=?ISO-2022-JP?B?GyRCJCIbKEI=?=))    ',
    'comment in comment (ISO-2022-JP)');
+
+
+$str = 'From: A B <ab@example.jp> ' . "(\xa9"
+    . '!"#$%&\'()*+,-./:;<=>?@[\]^_`{|}~)';
+is(mime_eco($str, 'UTF-8?Q'),
+   'From: A B <ab@example.jp> ' .
+   '(=?UTF-8?Q?=A9!=22=23=24=25=26=27=28=29*+=2C-=2E?=' . "\n" .
+   ' =?UTF-8?Q?/=3A=3B=3C=3D=3E=3F=40=5B=5C=5D=5E=5F=60=7B=7C=7D=7E?=)',
+   'structured header (UTF-8?Q)');
+
+
+$str = 'Subject: ' . "\xa9" . '!"#$%&\'()*+,-./:;<=>?@[\]^_`{|}~';
+is(mime_eco($str, 'UTF-8?Q'),
+   'Subject: =?UTF-8?Q?=A9!"#$%&\'()*+,-./:;<=3D>=3F@[\]^=5F`{|}~?=',
+   'unstructured header (UTF-8?Q)');
+
+
+$str = 'Subject: ' . "\x47\x72\xfc\xdf\x65";
+is(mime_eco($str, 'ISO-8859-1'), 'Subject: =?ISO-8859-1?B?R3L832U=?=',
+   'ISO-8859-1');
+is(mime_eco($str, 'ISO-8859-1?Q'), 'Subject: =?ISO-8859-1?Q?Gr=FC=DFe?=',
+   'ISO-8859-1?Q');
+
+$str = 'Subject:' . " Hello \x47\x72\xfc\xdf\x65" x 3;
+is(mime_eco($str, 'ISO-8859-15?Q'),
+   'Subject: Hello =?ISO-8859-15?Q?Gr=FC=DFe?= Hello ' .
+   '=?ISO-8859-15?Q?Gr=FC=DFe?=' . "\n" .
+   ' Hello =?ISO-8859-15?Q?Gr=FC=DFe?=',
+   'ISO-8859-15?Q');
+
+$str = 'Subject: ' . "\xe4\xbd\xa0\xe5\xa5\xbd\xe3\x80\x82";
+from_to($str, 'UTF-8', 'euc-cn');
+is(mime_eco($str, 'GB2312'), 'Subject: =?GB2312?B?xOO6w6Gj?=', 'GB2312');
+
+$str = 'Subject: ' . "\xbe\xc8\xb3\xe7\xc7\xcf\xbd\xca\xb4\xcf\xb1\xee\x3f";
+is(mime_eco($str, 'EUC-KR'), 'Subject: =?EUC-KR?B?vsiz58fPvcq0z7HuPw==?=',
+   'EUC-KR');
+
+$str = 'Subject: ' . "\xe4\xbd\xa0\xe5\xa5\xbd\xe3\x80\x82";
+from_to($str, 'UTF-8', 'big5');
+is(mime_eco($str, 'Big5'), 'Subject: =?Big5?B?p0GmbqFD?=', 'Big5');

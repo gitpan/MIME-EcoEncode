@@ -9,18 +9,23 @@ require Exporter;
 our @ISA = qw(Exporter);
 our @EXPORT_OK = qw($VERSION);
 our @EXPORT = qw(mime_eco);
-our $VERSION = '0.61';
+our $VERSION = '0.70';
 
 use MIME::Base64;
+use MIME::QuotedPrint;
 
-use constant HEAD   => '=?UTF-8?B?';
-use constant HEAD_J => '=?ISO-2022-JP?B?';
-use constant TAIL   => '?=';
+use constant TAIL => '?=';
 
-our $LF;  # line feed
-our $BPL; # bytes per line
+our $LF;   # line feed
+our $BPL;  # bytes per line
+our $MODE; # unstructured : 0, structured : 1, auto : 2
 
-our $ADD_ENC_WORD;
+our $HEAD; # head string
+our $HTL;  # head + tail length
+our $CSN;  # charset number
+
+our $REG_W;
+our $ADD_EW;
 our $REG_RP;
 
 sub mime_eco {
@@ -29,16 +34,16 @@ sub mime_eco {
 
     our $LF  = shift || "\n"; # line feed
     our $BPL = shift || 76;   # bytes per line
+    our $MODE = shift;
+    $MODE = 2 unless defined $MODE;
 
-    my $mode = shift;
-    $mode = 2 unless defined $mode;
     my $lss = shift;
     $lss = 25 unless defined $lss;
 
-    our $ADD_ENC_WORD;
+    our $CSN;
+    our $ADD_EW;
     our $REG_RP;
 
-    my $csn;
     my $pos;
     my $np;
     my $refsub;
@@ -56,15 +61,34 @@ sub mime_eco {
     return '' unless defined $str;
     return $str if $str =~ /^\s*$/;
 
-    if ($charset eq 'UTF-8') {
-	$csn = 1;
+    if ($charset =~ /^UTF-8(\?[QB])?$/i) {
+	$CSN = (defined $1 and $1 =~ /Q$/i) ? 1 : 2;
     }
-    elsif ($charset eq 'ISO-2022-JP') {
-	$csn = 0;
+    elsif ($charset =~ /^ISO-2022-JP(\?B)?$/i) { # Japanese
+        $CSN = 3;
+    }
+    elsif ($charset =~ /^ISO-8859-\d\d?(\?[QB])?$/i) { # Latin
+	$CSN = (defined $1 and $1 =~ /Q$/i) ? 0 : 4;
+	$REG_W = qr/(.)/;
+    }
+    elsif ($charset =~ /^GB2312(\?[B])?$/i) { # Simplified Chinese
+	$CSN = 5;
+	$REG_W = qr/([\xa1-\xfe][\xa1-\xfe]|.)/;
+    }
+    elsif ($charset =~ /^EUC-KR(\?[B])?$/i) { # Korean
+	$CSN = 6;
+	$REG_W = qr/([\xa1-\xfe][\xa1-\xfe]|.)/;
+    }
+    elsif ($charset =~ /^Big5(\?[B])?$/i) { # Traditional Chinese
+	$CSN = 7;
+	$REG_W = qr/([\x81-\xfe][\x40-\x7e\xa1-\xfe]|.)/;
     }
     else {
-	return undef;
+        return undef;
     }
+    $HEAD = (defined $1) ? '=?' . $charset . '?' : '=?' . $charset . '?B?';
+    $HTL = length($HEAD) + 2;
+
     my ($trailing_crlf) = ($str =~ /(\n|\r|\x0d\x0a)$/o);
 
     $str =~ tr/\n\r//d;
@@ -93,25 +117,29 @@ sub mime_eco {
 	$pos = 0;
     }
 
-    if ($mode == 2) {
-	$mode = ($w1 =~ /^(?:Subject:|Comments:)$/i) ? 0 : 1;
+    if ($MODE == 2) {
+	$MODE = ($w1 =~ /^(?:Subject:|Comments:)$/i) ? 0 : 1;
     }
-    if ($mode == 1) {
-	$refsub = \&add_enc_word_sth;
-	if ($csn == 1) {
-	    $reg_rp1 = qr/\)\,?$/;
-            $ADD_ENC_WORD = \&add_enc_word_utf8;
-            $REG_RP = qr/(\){1,3}\,?)$/;
-        }
-        else {
+    if ($MODE == 1) {
+	$refsub = \&add_ew_sh;
+	if ($CSN == 3) { # 7bit_jis
 	    $reg_rp1 = qr/\e\(B[\x21-\x7e]*\)\,?$/;
-            $ADD_ENC_WORD = \&add_enc_word_7bit_jis;
             $REG_RP = qr/\e\(B[\x21-\x7e]*?(\){1,3}\,?)$/;
+	    $ADD_EW = \&add_ew_j;
+	}
+	else {
+	    $reg_rp1 = qr/\)\,?$/;
+            $REG_RP = qr/(\){1,3}\,?)$/;
+	    $ADD_EW = \&add_ew_u    if $CSN == 2;
+	    $ADD_EW = \&add_ew_q    if $CSN < 2;
+            $ADD_EW = \&add_ew_lckt if $CSN > 3;
         }
     }
     else {
-        $refsub = ($csn == 1) ?
-            \&add_enc_word_utf8 : \&add_enc_word_7bit_jis;
+	$refsub = \&add_ew_u    if $CSN == 2;
+	$refsub = \&add_ew_q    if $CSN < 2;
+	$refsub = \&add_ew_lckt if $CSN > 3;
+	$refsub = \&add_ew_j    if $CSN == 3;
     }
 
     while ($str =~ /(\s*)(\S+)/gc) {
@@ -151,7 +179,7 @@ sub mime_eco {
 		$w1 = $w2;
 	    }
 	    else { # "non-ASCII \s+ non-ASCII"
-		if (($mode == 1) and ($sps_len <= $lss)) {
+		if (($MODE == 1) and ($sps_len <= $lss)) {
 		    if ($w1 =~ /$reg_rp1/ or $w2 =~ /^\(/) {
 			if ($count == 0) {
 			    $result .= &$refsub($w1, $pos, \$np, 0);
@@ -284,12 +312,12 @@ sub mime_eco {
 #     sp  : start position (indentation of the first line)
 #     ep  : end position of last line (call by reference)
 #     rll : room of last line (default: 0)
-sub add_enc_word_sth {
+sub add_ew_sh {
     my ($str, $sp, $ep, $rll) = @_;
 
     our $BPL; # bytes per line
 
-    our $ADD_ENC_WORD;
+    our $ADD_EW;
     our $REG_RP;
 
     my ($lp, $rp); # '(' & ')' : left/right parenthesis
@@ -307,7 +335,7 @@ sub add_enc_word_sth {
 	$rll = $rp_len;
 	substr($str, -$rp_len) = '';
     }
-    $tmp = &$ADD_ENC_WORD($str, $sp, $ep, $rll);
+    $tmp = &$ADD_EW($str, $sp, $ep, $rll);
     if ($lp_len > 0) {
 	if ($tmp !~ s/^ / $lp/) {
 	    $tmp = $lp . $tmp;
@@ -322,7 +350,7 @@ sub add_enc_word_sth {
 
 
 # add encoded-word for 7bit-jis string
-sub add_enc_word_7bit_jis {
+sub add_ew_j {
     my ($str, $sp, $ep, $rll) = @_;
 
     return '' if $str eq '';
@@ -343,12 +371,12 @@ sub add_enc_word_7bit_jis {
     my $str_len = length($str);
     my $ll_flag = 0;
 
-    # encoded size + sp (18 is HEAD_J + TAIL)
+    # encoded size + sp (18 is HEAD + TAIL)
     my $ep_tmp = int(($str_len + 2) / 3) * 4 + 18 + $sp;
 
     if ($ep_tmp + $rll <= $BPL) {
 	$$ep = $ep_tmp;
-	return HEAD_J . encode_base64($str, '') . TAIL;
+	return $HEAD . encode_base64($str, '') . TAIL;
     }
     $ll_flag = 1 if $ep_tmp <= $BPL;
     while ($str =~ /\e(..)|(.)/g) {
@@ -389,7 +417,7 @@ sub add_enc_word_7bit_jis {
 	    }
 	}
 
-	# encoded size (18 is HEAD_J + TAIL, 3 is "\e\(B")
+	# encoded size (18 is HEAD + TAIL, 3 is "\e\(B")
 	$enc_len =
 	    int(($chunk_len + $w_len + ($k_in ? 3 : 0) + 2) / 3) * 4 + 18;
 
@@ -403,7 +431,7 @@ sub add_enc_word_7bit_jis {
 		    $w = "\e$ec_bak" . $w;
 		    $w_len += 3;
 		}
-                $result .= HEAD_J . encode_base64($chunk, '') . TAIL . "$LF ";
+                $result .= $HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
             }
 	    $str_pos = pos($str);
 
@@ -425,7 +453,7 @@ sub add_enc_word_7bit_jis {
 		    $w = "\e$ec_bak" . $w;
 		    $w_len += 3;
 		}
-		$result .= HEAD_J . encode_base64($chunk, '') . TAIL . "$LF ";
+		$result .= $HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
 		$ep_tmp = int(($w_len + 2) / 3) * 4 + 19;
 		$chunk = $w;
 		last;
@@ -438,12 +466,12 @@ sub add_enc_word_7bit_jis {
 	$w_len = 0;
     }
     $$ep = $ep_tmp;
-    return $result . HEAD_J . encode_base64($chunk, '') . TAIL;
+    return $result . $HEAD . encode_base64($chunk, '') . TAIL;
 }
 
 
 # add encoded-word for utf8 string
-sub add_enc_word_utf8 {
+sub add_ew_u {
     my ($str, $sp, $ep, $rll) = @_;
 
     return '' if $str eq '';
@@ -463,7 +491,7 @@ sub add_enc_word_utf8 {
 
     if ($ep_tmp + $rll <= $BPL) {
 	$$ep = $ep_tmp;
-	return HEAD . encode_base64($str, '') . TAIL;
+	return $HEAD . encode_base64($str, '') . TAIL;
     }
 
     utf8::decode($str); # UTF8 flag on
@@ -474,8 +502,8 @@ sub add_enc_word_utf8 {
 	$$ep = int((length($w) + 2) / 3) * 4 + 13; # 13 is 12 + space
 	utf8::encode($str); # UTF8 flag off
 	$result = ($str eq '') ? ' ' :
-	    HEAD . encode_base64($str, '') . TAIL . "$LF ";
-	return $result . HEAD . encode_base64($w, '') . TAIL;
+	    $HEAD . encode_base64($str, '') . TAIL . "$LF ";
+	return $result . $HEAD . encode_base64($w, '') . TAIL;
     }
 
     for my $w (split //, $str) {
@@ -490,7 +518,7 @@ sub add_enc_word_utf8 {
 		$result = ' ';
 	    }
 	    else {
-		$result .= HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
+		$result .= $HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
 	    }
 	    $str_pos += $chunk_len;
 
@@ -507,7 +535,7 @@ sub add_enc_word_utf8 {
 		$w_len = length($w);
 		utf8::encode($str); # UTF8 flag off
 		$chunk = substr($str, $str_pos);
-		$result .= HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
+		$result .= $HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
 		$ep_tmp = int(($w_len + 2) / 3) * 4 + 13; # 13 is 12 + space
 		$chunk = $w;
 		last;
@@ -522,7 +550,185 @@ sub add_enc_word_utf8 {
 	}
     }
     $$ep = $ep_tmp;
-    return $result . HEAD . encode_base64($chunk, '') . TAIL;
+    return $result . $HEAD . encode_base64($chunk, '') . TAIL;
+}
+
+
+# add encoded-word for iso-8859-xx/euc-cn/euc-kr/big5 string
+sub add_ew_lckt {
+    my ($str, $sp, $ep, $rll) = @_;
+
+    return '' if $str eq '';
+
+    our $LF;  # line feed
+    our $BPL; # bytes per line
+    our $HTL; # head + tail length
+
+    my ($chunk, $chunk_len) = ('', 0);
+    my $w_len;
+    my $enc_len;
+    my $result = '';
+    my $str_pos = 0;
+    my $str_len = length($str);
+
+    # encoded size + sp
+    my $ep_tmp = int(($str_len + 2) / 3) * 4 + $HTL + $sp;
+
+    if ($ep_tmp + $rll <= $BPL) {
+	$$ep = $ep_tmp;
+	return $HEAD . encode_base64($str, '') . TAIL;
+    }
+
+    if ($ep_tmp <= $BPL) {
+	my $w;
+	$str =~ s/$REG_W$//;
+	$w = $1;
+	$$ep = int((length($w) + 2) / 3) * 4 + $HTL + 1; # 1 is space
+	$result = ($str eq '') ? ' ' :
+	    $HEAD . encode_base64($str, '') . TAIL . "$LF ";
+	return $result . $HEAD . encode_base64($w, '') . TAIL;
+    }
+
+    while ($str =~ /$REG_W/g) {
+	my $w = $1;
+	$w_len = length($w); # size of one character
+
+	# encoded size
+	$enc_len = int(($chunk_len + $w_len + 2) / 3) * 4 + $HTL;
+
+	if ($sp + $enc_len > $BPL) {
+	    if ($chunk_len == 0) { # size over at the first time
+		$result = ' ';
+	    }
+	    else {
+		$result .= $HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
+	    }
+	    $str_pos += $chunk_len;
+
+	    # encoded size (1 is space)
+            $ep_tmp = int(($str_len - $str_pos + 2) / 3) * 4 + $HTL + 1;
+            if ($ep_tmp + $rll <= $BPL) {
+                $chunk = substr($str, $str_pos);
+                last;
+            }
+	    if ($ep_tmp <= $BPL) {
+		$str =~ s/$REG_W$//;
+		$w = $1;
+		$w_len = length($w);
+		$chunk = substr($str, $str_pos);
+		$result .= $HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
+		$ep_tmp = int(($w_len + 2) / 3) * 4 + $HTL + 1; # 1 is space
+		$chunk = $w;
+		last;
+	    }
+	    $chunk = $w;
+	    $chunk_len = $w_len;
+	    $sp = 1; # 1 is top space
+	}
+	else {
+	    $chunk .= $w;
+	    $chunk_len += $w_len;
+	}
+    }
+    $$ep = $ep_tmp;
+    return $result . $HEAD . encode_base64($chunk, '') . TAIL;
+}
+
+
+# add encoded-word for utf8/iso-8859-xx string ("Q" encoding)
+sub add_ew_q {
+    my ($str, $sp, $ep, $rll) = @_;
+
+    return '' if $str eq '';
+
+    our $LF;   # line feed
+    our $BPL;  # bytes per line
+    our $MODE; # unstructured : 0, structured : 1
+    our $HTL;  # head + tail length
+    our $CSN;  # charset number
+
+    my $enc_len;
+    my $result = '';
+    my $qstr = encode_qp($str, '');
+    my $qstr_len;
+    my $chunk_qlen = 0;
+    my $w_qlen;
+
+    local *qlen;
+
+    $qstr =~ s/_/=5F/g;
+    $qstr =~ tr/ /_/;
+    if ($MODE) { # structured
+	$qstr =~ s/([^\w\!\*\+\-\/\=])/sprintf("=%X",ord($1))/ego;
+	*qlen = sub {
+	    my $str = shift;
+	    return length($str) * 3 - ($str =~ tr/ A-Za-z0-9\!\*\+\-\///) * 2;
+	};
+    }
+    else { # unstructured
+	$qstr =~ s/\?/=3F/g;
+	*qlen = sub {
+	    my $str = shift;
+	    return length($str) * 3 - ($str =~ tr/ -\<\>\@-\^\`-\~//) * 2;
+	};
+    }
+    $qstr_len = length($qstr);
+
+    my $ep_tmp = $qstr_len + $HTL + $sp;
+
+    if ($ep_tmp + $rll <= $BPL) {
+	$$ep = $ep_tmp;
+	return $HEAD . $qstr . TAIL;
+    }
+
+    utf8::decode($str) if $CSN; # UTF8 flag on
+
+    if ($ep_tmp <= $BPL) {
+	my $w = chop($str);
+	utf8::encode($w) if $CSN; # UTF8 flag off
+	$w_qlen = qlen($w);
+	$$ep = $w_qlen + $HTL + 1; # 1 is space
+	$result = ($str eq '') ? ' ' :
+	    $HEAD . substr($qstr, 0, $qstr_len - $w_qlen, '') . TAIL . "$LF ";
+	return $result . $HEAD . $qstr . TAIL;
+    }
+
+    for my $w (split //, $str) {
+	utf8::encode($w) if $CSN; # UTF8 flag off
+	$w_qlen = qlen($w);
+	$enc_len = $chunk_qlen + $w_qlen + $HTL;
+	if ($sp + $enc_len > $BPL) {
+	    if ($chunk_qlen == 0) { # size over at the first time
+		$result = ' ';
+	    }
+	    else {
+		$result .= $HEAD . substr($qstr, 0, $chunk_qlen, '')
+		    . TAIL . "$LF ";
+	    }
+	    $qstr_len -= $chunk_qlen;
+	    $ep_tmp = $qstr_len + $HTL + 1; # 1 is space
+
+            if ($ep_tmp + $rll <= $BPL) {
+                last;
+            }
+	    if ($ep_tmp <= $BPL) {
+		$w = chop($str);
+		utf8::encode($w) if $CSN; # UTF8 flag off
+		$w_qlen = qlen($w);
+		$result .= $HEAD . substr($qstr, 0, $qstr_len - $w_qlen, '')
+		    . TAIL . "$LF ";
+		$ep_tmp = $w_qlen + $HTL + 1; # 1 is space
+		last;
+	    }
+	    $chunk_qlen = $w_qlen;
+	    $sp = 1; # 1 is top space
+	}
+	else {
+	    $chunk_qlen += $w_qlen;
+	}
+    }
+    $$ep = $ep_tmp;
+    return $result . $HEAD . $qstr . TAIL;
 }
 
 1;
@@ -535,8 +741,14 @@ MIME::EcoEncode - MIME Encoding (Economical)
 =head1 SYNOPSIS
 
  use MIME::EcoEncode;
- $encoded = mime_eco($str, 'UTF-8'); # encode utf8 string
- $encoded = mime_eco($str, 'ISO-2022-JP'); # encode 7bit-jis string
+ $encoded = mime_eco($str, 'UTF-8');        # encode utf8 string
+ $encoded = mime_eco($str, 'UTF-8?Q');      #   ditto ("Q" encoding)
+ $encoded = mime_eco($str, 'ISO-8859-1');   # encode iso-8859-1 string
+ $encoded = mime_eco($str, 'ISO-8859-1?Q'); #   ditto ("Q" encoding)
+ $encoded = mime_eco($str, 'GB2312');       # encode euc-cn string
+ $encoded = mime_eco($str, 'EUC-KR');       # encode euc-kr string
+ $encoded = mime_eco($str, 'Big5');         # encode big5 string
+ $encoded = mime_eco($str, 'ISO-2022-JP');  # encode 7bit-jis string
 
 =head1 DESCRIPTION
 
@@ -545,7 +757,11 @@ This module implements RFC 2047 Mime Header Encoding.
 =head2 OPTIONS
 
   $encoded = mime_eco($str, $charset, $lf, $bpl, $mode, $lss);
-               # $charset : 'UTF-8' or 'ISO-2022-JP'
+               # $charset : 'UTF-8', 'UTF-8?Q',
+               #            'ISO-8859-1' .. 'ISO-8859-16',
+               #            'ISO-8859-1?Q' .. 'ISO-8859-16?Q',
+               #            'GB2312', 'EUC-KR', 'Big5' or 'ISO-2022-JP'
+               #            (default: 'UTF-8')
                # $lf      : line feed (default: "\n")
                # $bpl     : bytes per line (default: 76)
                # $mode    : 0 : unstructured header

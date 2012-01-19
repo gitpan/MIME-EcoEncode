@@ -1,5 +1,11 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.70  2012-01-19
+	- Added support the following charset:
+	    ISO-8859-xx, GB2312, EUC-KR, Big5
+	- Added support "Q" encoding (only UTF-8 and ISO-8859-xx)
+	- Added support the charset name of lowercase letters
+
 0.61  2012-01-13
 	- Improved performance
 	- Corrected the mistakes
