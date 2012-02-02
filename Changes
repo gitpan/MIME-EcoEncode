@@ -1,5 +1,11 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.80  2012-02-02
+	- Added subroutine mime_deco()
+	- Added support RFC2231's language
+	- Added support "Q" encoding about all charset except ISO-2022-JP
+	- Added support all single-byte charsets
+
 0.70  2012-01-19
 	- Added support the following charset:
 	    ISO-8859-xx, GB2312, EUC-KR, Big5

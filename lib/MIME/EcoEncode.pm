@@ -8,8 +8,8 @@ require Exporter;
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK = qw($VERSION);
-our @EXPORT = qw(mime_eco);
-our $VERSION = '0.70';
+our @EXPORT = qw(mime_eco mime_deco);
+our $VERSION = '0.80';
 
 use MIME::Base64;
 use MIME::QuotedPrint;
@@ -22,8 +22,7 @@ our $MODE; # unstructured : 0, structured : 1, auto : 2
 
 our $HEAD; # head string
 our $HTL;  # head + tail length
-our $CSN;  # charset number
-
+our $UTF8;
 our $REG_W;
 our $ADD_EW;
 our $REG_RP;
@@ -40,9 +39,14 @@ sub mime_eco {
     my $lss = shift;
     $lss = 25 unless defined $lss;
 
-    our $CSN;
+    our $HEAD; # head string
+    our $HTL;  # head + tail length
+    our $UTF8 = 1;
+    our $REG_W = qr/(.)/;
     our $ADD_EW;
     our $REG_RP;
+
+    my $jp = 0;
 
     my $pos;
     my $np;
@@ -60,39 +64,38 @@ sub mime_eco {
 
     return '' unless defined $str;
     return $str if $str =~ /^\s*$/;
+    return undef
+	unless $charset =~ /^([-0-9A-Za-z_]+)(?:\*[^\?]*)?(\?[QB])?$/i;
 
-    if ($charset =~ /^UTF-8(\?[QB])?$/i) {
-	$CSN = (defined $1 and $1 =~ /Q$/i) ? 1 : 2;
-    }
-    elsif ($charset =~ /^ISO-2022-JP(\?B)?$/i) { # Japanese
-        $CSN = 3;
-    }
-    elsif ($charset =~ /^ISO-8859-\d\d?(\?[QB])?$/i) { # Latin
-	$CSN = (defined $1 and $1 =~ /Q$/i) ? 0 : 4;
-	$REG_W = qr/(.)/;
-    }
-    elsif ($charset =~ /^GB2312(\?[B])?$/i) { # Simplified Chinese
-	$CSN = 5;
-	$REG_W = qr/([\xa1-\xfe][\xa1-\xfe]|.)/;
-    }
-    elsif ($charset =~ /^EUC-KR(\?[B])?$/i) { # Korean
-	$CSN = 6;
-	$REG_W = qr/([\xa1-\xfe][\xa1-\xfe]|.)/;
-    }
-    elsif ($charset =~ /^Big5(\?[B])?$/i) { # Traditional Chinese
-	$CSN = 7;
-	$REG_W = qr/([\x81-\xfe][\x40-\x7e\xa1-\xfe]|.)/;
-    }
-    else {
-        return undef;
-    }
-    $HEAD = (defined $1) ? '=?' . $charset . '?' : '=?' . $charset . '?B?';
+    my $cs = lc($1);
+    $charset .= '?B' unless defined $2;
+
+    my $q_enc = ($charset =~ /Q$/i) ? 1 : 0;
+    $HEAD = '=?' . $charset . '?';
     $HTL = length($HEAD) + 2;
 
+    if ($cs ne 'utf-8') {
+	$UTF8 = 0;
+	if ($cs eq 'iso-2022-jp') {
+	    return undef if $q_enc;
+	    $jp = 1;
+	}
+	elsif ($cs eq 'gb2312') { # Simplified Chinese
+	    $REG_W = qr/([\xa1-\xfe][\xa1-\xfe]|.)/;
+	}
+	elsif ($cs eq 'euc-kr') { # Korean
+	    $REG_W = qr/([\xa1-\xfe][\xa1-\xfe]|.)/;
+	}
+	elsif ($cs eq 'big5') { # Traditional Chinese
+	    $REG_W = qr/([\x81-\xfe][\x40-\x7e\xa1-\xfe]|.)/;
+	}
+	else { # Single Byte (Latin, Cyrillic, ...)
+	    ;
+	}
+    }
     my ($trailing_crlf) = ($str =~ /(\n|\r|\x0d\x0a)$/o);
 
     $str =~ tr/\n\r//d;
-
     $str =~ /(\s*)(\S+)/gc;
     ($sps, $w2) = ($1, $2);
 
@@ -120,9 +123,12 @@ sub mime_eco {
     if ($MODE == 2) {
 	$MODE = ($w1 =~ /^(?:Subject:|Comments:)$/i) ? 0 : 1;
     }
-    if ($MODE == 1) {
+    if ($MODE == 0) {
+	$refsub = $jp ? \&add_ew_j : $q_enc ? \&add_ew_q : \&add_ew_b;
+    }
+    else {
 	$refsub = \&add_ew_sh;
-	if ($CSN == 3) { # 7bit_jis
+	if ($jp) { # 7bit_jis
 	    $reg_rp1 = qr/\e\(B[\x21-\x7e]*\)\,?$/;
             $REG_RP = qr/\e\(B[\x21-\x7e]*?(\){1,3}\,?)$/;
 	    $ADD_EW = \&add_ew_j;
@@ -130,16 +136,8 @@ sub mime_eco {
 	else {
 	    $reg_rp1 = qr/\)\,?$/;
             $REG_RP = qr/(\){1,3}\,?)$/;
-	    $ADD_EW = \&add_ew_u    if $CSN == 2;
-	    $ADD_EW = \&add_ew_q    if $CSN < 2;
-            $ADD_EW = \&add_ew_lckt if $CSN > 3;
+	    $ADD_EW = $q_enc ? \&add_ew_q : \&add_ew_b;
         }
-    }
-    else {
-	$refsub = \&add_ew_u    if $CSN == 2;
-	$refsub = \&add_ew_q    if $CSN < 2;
-	$refsub = \&add_ew_lckt if $CSN > 3;
-	$refsub = \&add_ew_j    if $CSN == 3;
     }
 
     while ($str =~ /(\s*)(\S+)/gc) {
@@ -315,8 +313,6 @@ sub mime_eco {
 sub add_ew_sh {
     my ($str, $sp, $ep, $rll) = @_;
 
-    our $BPL; # bytes per line
-
     our $ADD_EW;
     our $REG_RP;
 
@@ -355,8 +351,10 @@ sub add_ew_j {
 
     return '' if $str eq '';
 
-    our $LF;  # line feed
-    our $BPL; # bytes per line
+    our $HEAD; # head string
+    our $HTL;  # head + tail length
+    our $LF;   # line feed
+    our $BPL;  # bytes per line
 
     my $k_in = 0; # ascii: 0, zen: 1 or 2, han: 9
     my $k_in_bak = 0;
@@ -371,8 +369,8 @@ sub add_ew_j {
     my $str_len = length($str);
     my $ll_flag = 0;
 
-    # encoded size + sp (18 is HEAD + TAIL)
-    my $ep_tmp = int(($str_len + 2) / 3) * 4 + 18 + $sp;
+    # encoded size + sp
+    my $ep_tmp = int(($str_len + 2) / 3) * 4 + $HTL + $sp;
 
     if ($ep_tmp + $rll <= $BPL) {
 	$$ep = $ep_tmp;
@@ -417,9 +415,9 @@ sub add_ew_j {
 	    }
 	}
 
-	# encoded size (18 is HEAD + TAIL, 3 is "\e\(B")
+	# encoded size (3 is "\e\(B")
 	$enc_len =
-	    int(($chunk_len + $w_len + ($k_in ? 3 : 0) + 2) / 3) * 4 + 18;
+	    int(($chunk_len + $w_len + ($k_in ? 3 : 0) + 2) / 3) * 4 + $HTL;
 
 	if ($sp + $enc_len > $BPL) {
             if ($chunk_len == 0) { # size over at the first time
@@ -435,8 +433,10 @@ sub add_ew_j {
             }
 	    $str_pos = pos($str);
 
-	    # encoded size (19 is 18 + space)
-	    $ep_tmp = int(($str_len - $str_pos + $w_len + 2) / 3) * 4 + 19;
+	    # encoded size (1 is space)
+	    $ep_tmp =
+		int(($str_len - $str_pos + $w_len + 2) / 3) * 4 + $HTL + 1;
+
 	    if ($ep_tmp + $rll <= $BPL) {
 		$chunk = $w . substr($str, $str_pos);
 		last;
@@ -454,7 +454,7 @@ sub add_ew_j {
 		    $w_len += 3;
 		}
 		$result .= $HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
-		$ep_tmp = int(($w_len + 2) / 3) * 4 + 19;
+		$ep_tmp = int(($w_len + 2) / 3) * 4 + $HTL + 1; # 1 is space
 		$chunk = $w;
 		last;
 	    }
@@ -470,99 +470,18 @@ sub add_ew_j {
 }
 
 
-# add encoded-word for utf8 string
-sub add_ew_u {
+# add encoded-word for "B" encoding
+sub add_ew_b {
     my ($str, $sp, $ep, $rll) = @_;
 
     return '' if $str eq '';
 
-    our $LF;  # line feed
-    our $BPL; # bytes per line
-
-    my ($chunk, $chunk_len) = ('', 0);
-    my $w_len;
-    my $enc_len;
-    my $result = '';
-    my $str_pos = 0;
-    my $str_len = length($str);
-
-    # encoded size + sp (12 is HEAD + TAIL)
-    my $ep_tmp = int(($str_len + 2) / 3) * 4 + 12 + $sp;
-
-    if ($ep_tmp + $rll <= $BPL) {
-	$$ep = $ep_tmp;
-	return $HEAD . encode_base64($str, '') . TAIL;
-    }
-
-    utf8::decode($str); # UTF8 flag on
-
-    if ($ep_tmp <= $BPL) {
-	my $w = chop($str);
-	utf8::encode($w); # UTF8 flag off
-	$$ep = int((length($w) + 2) / 3) * 4 + 13; # 13 is 12 + space
-	utf8::encode($str); # UTF8 flag off
-	$result = ($str eq '') ? ' ' :
-	    $HEAD . encode_base64($str, '') . TAIL . "$LF ";
-	return $result . $HEAD . encode_base64($w, '') . TAIL;
-    }
-
-    for my $w (split //, $str) {
-	utf8::encode($w); # UTF8 flag off
-	$w_len = length($w); # size of one character
-
-	# encoded size (12 is HEAD + TAIL)
-	$enc_len = int(($chunk_len + $w_len + 2) / 3) * 4 + 12;
-
-	if ($sp + $enc_len > $BPL) {
-	    if ($chunk_len == 0) { # size over at the first time
-		$result = ' ';
-	    }
-	    else {
-		$result .= $HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
-	    }
-	    $str_pos += $chunk_len;
-
-	    # encoded size (13 is 12 + space)
-            $ep_tmp = int(($str_len - $str_pos + 2) / 3) * 4 + 13;
-            if ($ep_tmp + $rll <= $BPL) {
-		utf8::encode($str); # UTF8 flag off
-                $chunk = substr($str, $str_pos);
-                last;
-            }
-	    if ($ep_tmp <= $BPL) {
-		$w = chop($str);
-		utf8::encode($w); # UTF8 flag off
-		$w_len = length($w);
-		utf8::encode($str); # UTF8 flag off
-		$chunk = substr($str, $str_pos);
-		$result .= $HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
-		$ep_tmp = int(($w_len + 2) / 3) * 4 + 13; # 13 is 12 + space
-		$chunk = $w;
-		last;
-	    }
-	    $chunk = $w;
-	    $chunk_len = $w_len;
-	    $sp = 1; # 1 is top space
-	}
-	else {
-	    $chunk .= $w;
-	    $chunk_len += $w_len;
-	}
-    }
-    $$ep = $ep_tmp;
-    return $result . $HEAD . encode_base64($chunk, '') . TAIL;
-}
-
-
-# add encoded-word for iso-8859-xx/euc-cn/euc-kr/big5 string
-sub add_ew_lckt {
-    my ($str, $sp, $ep, $rll) = @_;
-
-    return '' if $str eq '';
-
-    our $LF;  # line feed
-    our $BPL; # bytes per line
-    our $HTL; # head + tail length
+    our $LF;   # line feed
+    our $BPL;  # bytes per line
+    our $HEAD; # head string
+    our $HTL;  # head + tail length
+    our $UTF8;
+    our $REG_W;
 
     my ($chunk, $chunk_len) = ('', 0);
     my $w_len;
@@ -579,10 +498,12 @@ sub add_ew_lckt {
 	return $HEAD . encode_base64($str, '') . TAIL;
     }
 
+    utf8::decode($str) if $UTF8; # UTF8 flag on
+
     if ($ep_tmp <= $BPL) {
-	my $w;
 	$str =~ s/$REG_W$//;
-	$w = $1;
+	my $w = $1;
+	utf8::encode($w) if $UTF8; # UTF8 flag off
 	$$ep = int((length($w) + 2) / 3) * 4 + $HTL + 1; # 1 is space
 	$result = ($str eq '') ? ' ' :
 	    $HEAD . encode_base64($str, '') . TAIL . "$LF ";
@@ -591,6 +512,7 @@ sub add_ew_lckt {
 
     while ($str =~ /$REG_W/g) {
 	my $w = $1;
+	utf8::encode($w) if $UTF8; # UTF8 flag off
 	$w_len = length($w); # size of one character
 
 	# encoded size
@@ -608,13 +530,16 @@ sub add_ew_lckt {
 	    # encoded size (1 is space)
             $ep_tmp = int(($str_len - $str_pos + 2) / 3) * 4 + $HTL + 1;
             if ($ep_tmp + $rll <= $BPL) {
+		utf8::encode($str) if $UTF8; # UTF8 flag off
                 $chunk = substr($str, $str_pos);
                 last;
             }
 	    if ($ep_tmp <= $BPL) {
 		$str =~ s/$REG_W$//;
 		$w = $1;
+		utf8::encode($w) if $UTF8; # UTF8 flag off
 		$w_len = length($w);
+		utf8::encode($str) if $UTF8; # UTF8 flag off
 		$chunk = substr($str, $str_pos);
 		$result .= $HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
 		$ep_tmp = int(($w_len + 2) / 3) * 4 + $HTL + 1; # 1 is space
@@ -635,7 +560,7 @@ sub add_ew_lckt {
 }
 
 
-# add encoded-word for utf8/iso-8859-xx string ("Q" encoding)
+# add encoded-word for "Q" encoding
 sub add_ew_q {
     my ($str, $sp, $ep, $rll) = @_;
 
@@ -644,8 +569,10 @@ sub add_ew_q {
     our $LF;   # line feed
     our $BPL;  # bytes per line
     our $MODE; # unstructured : 0, structured : 1
+    our $HEAD; # head string
     our $HTL;  # head + tail length
-    our $CSN;  # charset number
+    our $UTF8;
+    our $REG_W;
 
     my $enc_len;
     my $result = '';
@@ -681,11 +608,12 @@ sub add_ew_q {
 	return $HEAD . $qstr . TAIL;
     }
 
-    utf8::decode($str) if $CSN; # UTF8 flag on
+    utf8::decode($str) if $UTF8; # UTF8 flag on
 
     if ($ep_tmp <= $BPL) {
-	my $w = chop($str);
-	utf8::encode($w) if $CSN; # UTF8 flag off
+	$str =~ s/$REG_W$//;
+	my $w = $1;
+	utf8::encode($w) if $UTF8; # UTF8 flag off
 	$w_qlen = qlen($w);
 	$$ep = $w_qlen + $HTL + 1; # 1 is space
 	$result = ($str eq '') ? ' ' :
@@ -693,8 +621,9 @@ sub add_ew_q {
 	return $result . $HEAD . $qstr . TAIL;
     }
 
-    for my $w (split //, $str) {
-	utf8::encode($w) if $CSN; # UTF8 flag off
+    while ($str =~ /$REG_W/g) {
+	my $w = $1;
+	utf8::encode($w) if $UTF8; # UTF8 flag off
 	$w_qlen = qlen($w);
 	$enc_len = $chunk_qlen + $w_qlen + $HTL;
 	if ($sp + $enc_len > $BPL) {
@@ -712,8 +641,9 @@ sub add_ew_q {
                 last;
             }
 	    if ($ep_tmp <= $BPL) {
-		$w = chop($str);
-		utf8::encode($w) if $CSN; # UTF8 flag off
+		$str =~ s/$REG_W$//;
+		$w = $1;
+		utf8::encode($w) if $UTF8; # UTF8 flag off
 		$w_qlen = qlen($w);
 		$result .= $HEAD . substr($qstr, 0, $qstr_len - $w_qlen, '')
 		    . TAIL . "$LF ";
@@ -731,6 +661,95 @@ sub add_ew_q {
     return $result . $HEAD . $qstr . TAIL;
 }
 
+
+sub mime_deco {
+    my $str = shift;
+    my $cb = shift;
+
+    my ($charset, $lang, $b_enc, $q_enc);
+    my $result = '';
+    my $enc = 0;
+    my $w_bak = '';
+
+    my $reg_ew =
+        qr{^
+           =\?
+           ([-0-9A-Za-z_]+)                          # charset
+           (?:\*([A-Za-z]{1,8}(?:-[A-Za-z]{1,8})*))? # language (RFC 2231)
+           \?
+           (?:
+               [Bb]\?([0-9A-Za-z\+\/]+={0,2})\?=     # "B" encoding
+           |
+               [Qq]\?([\x21-\x3e\x40-\x7e]+)\?=      # "Q" encoding
+           )
+           $}x;
+
+    my ($trailing_crlf) = ($str =~ /(\n|\r|\x0d\x0a)$/o);
+    $str =~ tr/\n\r//d;
+
+    if ($cb) {
+        for my $w (split /([\(\)\s]+)/, $str) {
+            if ($w =~ qr/$reg_ew/o) {
+                ($charset, $lang, $b_enc, $q_enc) = ($1, $2, $3, $4);
+                $lang = '' unless defined $lang;
+                $result =~ s/\s+$// if $enc;
+                if (defined $q_enc) {
+                    $q_enc =~ tr/_/ /;
+                    $result .= &$cb($w, $charset, $lang,
+                                    decode_qp($q_enc));
+                }
+                else {
+                    $result .= &$cb($w, $charset, $lang,
+                                    decode_base64($b_enc));
+                }
+                $enc = 1;
+            }
+            else {
+                if ($enc and $w !~ /^\s*$/) {
+                    $enc = 0;
+                }
+                $result .= $w;
+            }
+        }
+    }
+    else {
+        my $cs1 = '';
+        for my $w (split /([\(\)\s]+)/, $str) {
+            if ($w =~ qr/$reg_ew/o) {
+                ($charset, $lang, $b_enc, $q_enc) = ($1, $2, $3, $4);
+                if ($charset !~ /^US-ASCII$/i) {
+                    if ($cs1) {
+                        if ($cs1 ne lc($charset)) {
+                            $result .= $w;
+                            $enc = 0;
+                            next;
+                        }
+                    }
+                    else {
+                        $cs1 = lc($charset);
+                    }
+                }
+                $result =~ s/\s+$// if $enc;
+                if (defined $q_enc) {
+                    $q_enc =~ tr/_/ /;
+                    $result .= decode_qp($q_enc);
+                }
+                else {
+                    $result .= decode_base64($b_enc);
+                }
+                $enc = 1;
+            }
+            else {
+                if ($enc and $w !~ /^\s*$/) {
+                    $enc = 0;
+                }
+                $result .= $w;
+            }
+        }
+    }
+    return $trailing_crlf ? $result . $trailing_crlf : $result;
+}
+
 1;
 __END__
 
@@ -742,33 +761,117 @@ MIME::EcoEncode - MIME Encoding (Economical)
 
  use MIME::EcoEncode;
  $encoded = mime_eco($str, 'UTF-8');        # encode utf8 string
- $encoded = mime_eco($str, 'UTF-8?Q');      #   ditto ("Q" encoding)
- $encoded = mime_eco($str, 'ISO-8859-1');   # encode iso-8859-1 string
- $encoded = mime_eco($str, 'ISO-8859-1?Q'); #   ditto ("Q" encoding)
+ $encoded = mime_eco($str, 'UTF-8?B');      # ditto ("B" encoding)
+ $encoded = mime_eco($str, 'UTF-8?Q');      # ditto ("Q" encoding)
+ $encoded = mime_eco($str, 'UTF-8*XX');     # XX is RFC2231's language
+ $encoded = mime_eco($str, 'UTF-8*XX?B');   # ditto ("B" encoding)
+ $encoded = mime_eco($str, 'UTF-8*XX?Q');   # ditto ("Q" encoding)
  $encoded = mime_eco($str, 'GB2312');       # encode euc-cn string
  $encoded = mime_eco($str, 'EUC-KR');       # encode euc-kr string
  $encoded = mime_eco($str, 'Big5');         # encode big5 string
  $encoded = mime_eco($str, 'ISO-2022-JP');  # encode 7bit-jis string
+ $encoded = mime_eco($str, $sbcs);          # $sbcs :
+                                            #   single-byte charset
+                                            #     (e.g. 'ISO-8859-1')
+
+ $decoded = mime_deco($encoded);            # decode encoded string
+                                            #   (for single charset)
+
+ use Encode;
+ $decoded = mime_deco($encoded, \&cb);      # cb is callback subroutine
+                                            #   (for multiple charsets)
+
+ # Example of callback subroutine
+ sub cb {
+   my ($encoded_word, $charset, $language, $decoded_word) = @_;
+   encode_utf8(decode($charset, $decoded_word));
+ }
 
 =head1 DESCRIPTION
 
 This module implements RFC 2047 Mime Header Encoding.
 
-=head2 OPTIONS
+=head2 Options
 
   $encoded = mime_eco($str, $charset, $lf, $bpl, $mode, $lss);
-               # $charset : 'UTF-8', 'UTF-8?Q',
-               #            'ISO-8859-1' .. 'ISO-8859-16',
-               #            'ISO-8859-1?Q' .. 'ISO-8859-16?Q',
-               #            'GB2312', 'EUC-KR', 'Big5' or 'ISO-2022-JP'
+               # $charset : 'UTF-8' / 'UTF-8?Q' / 'UTF-8*XX' /
+               #            'GB2312' / 'EUC-KR' / 'Big5' /
+               #            'ISO-2022-JP' / ...
                #            (default: 'UTF-8')
+               #              Note: "B" encoding is all defaults.
+               #                    'ISO-2022-JP?Q' is not supported.
+               #                    The others are all encoded as
+               #                    single-byte string.
                # $lf      : line feed (default: "\n")
                # $bpl     : bytes per line (default: 76)
-               # $mode    : 0 : unstructured header
-               #            1 : structured header
+               # $mode    : 0 : unstructured header (e.g. Subject)
+               #            1 : structured header (e.g. To, Cc, From)
                #            2 : auto (Subject or Comments ? 0 : 1)
                #            (default: 2)
                # $lss     : length of security space (default: 25)
+
+=head2 Examples
+
+Ex1 - normal (structured header)
+
+  use MIME::EcoEncode;
+  my $str = "From: Sakura <sakura\@example.jp> (\xe6\xa1\x9c)\n";
+  print mime_eco($str);
+
+Ex1's output:
+
+  From: Sakura <sakura@example.jp> (=?UTF-8?B?5qGc?=)
+
+Ex2 - "Q" encoding + RFC2231's language
+
+  use MIME::EcoEncode;
+  my $str = "From: Sakura <sakura\@example.jp> (\xe6\xa1\x9c)\n";
+  print mime_eco($str, 'UTF-8*ja-JP?Q');
+
+Ex2's output:
+
+  From: Sakura <sakura@example.jp> (=?UTF-8*ja-JP?Q?=E6=A1=9C?=)
+
+Ex3 - continuous spaces
+
+  use MIME::EcoEncode;
+  $str = "From: Sakura  <sakura\@example.jp>    (\xe6\xa1\x9c)\n";
+  print mime_eco($str);
+
+Ex3's output:
+
+  From: Sakura  <sakura@example.jp>    (=?UTF-8?B?5qGc?=)
+
+Ex4 - unstructured header (1)
+
+  use MIME::EcoEncode;
+  $str = "Subject: Sakura (\xe6\xa1\x9c)\n";
+  print mime_eco($str);
+
+Ex4's output:
+
+  Subject: Sakura =?UTF-8?B?KOahnCk=?=
+
+Ex5 - unstructured header (2)
+
+  use MIME::EcoEncode;
+  $str = "Subject: \xe6\xa1\x9c  Sakura\n";
+  print mime_eco($str);
+
+Ex5's output:
+
+  Subject: =?UTF-8?B?5qGc?=  Sakura
+
+Ex6 - 7bit-jis string
+
+  use Encode;
+  use MIME::EcoEncode;
+  $str = "Subject: \xe6\xa1\x9c  Sakura\n";
+  print mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP');
+
+Ex6's output:
+
+  Subject: =?ISO-2022-JP?B?GyRCOnkbKEI=?=  Sakura
 
 =head1 SEE ALSO
 

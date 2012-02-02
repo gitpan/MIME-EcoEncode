@@ -1,16 +1,19 @@
 #!/usr/bin/perl -w
 
+# This script is written in utf8
+
 use strict;
 use warnings;
 
-use Test::More tests => 43;
+use Test::More tests => 49;
 #use Test::More 'no_plan';
 BEGIN { use_ok('MIME::EcoEncode') };
 
-use Encode qw/from_to/;
+use Encode;
 use MIME::EcoEncode;
 
 my $str;
+my $encoded;
 
 $str = 'test';
 is(mime_eco($str, 'UTF-8'), $str, 'ASCII (UTF-8)');
@@ -47,8 +50,7 @@ is(mime_eco($str, 'UTF-8'),
    "5pel5pys6Kqe44GC44GE44GG44GI44GK44Ki44Kk44Km44Ko44Kq5pel5pys6Kqe?=\n" .
    " =?UTF-8?B?44GC44GE44GG44GI44GK44Ki44Kk44Km44Ko44Kq?=",
    'non-ASCII only (UTF-8)');
-from_to($str, 'UTF-8', '7bit-jis');
-is(mime_eco($str, 'ISO-2022-JP'),
+is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP'),
    "=?ISO-2022-JP?B?" .
    "GyRCRnxLXDhsJCIkJCQmJCgkKiUiJSQlJiUoJSpGfEtcOGwkIiQkGyhC?=\n" .
    " =?ISO-2022-JP?B?GyRCJCYkKCQqJSIlJCUmJSglKhsoQg==?=",
@@ -58,16 +60,16 @@ is(mime_eco($str, 'ISO-2022-JP'),
 $str = '  ' . 'あ' . '  ';
 is(mime_eco($str, 'UTF-8'), '  =?UTF-8?B?44GC?=  ',
    'SP SP non-ASCII SP SP (UTF-8)');
-from_to($str, 'UTF-8', '7bit-jis');
-is(mime_eco($str, 'ISO-2022-JP'), '  =?ISO-2022-JP?B?GyRCJCIbKEI=?=  ',
+is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP'),
+   '  =?ISO-2022-JP?B?GyRCJCIbKEI=?=  ',
    'SP SP non-ASCII SP SP (ISO-2022-JP)');
 
 
 $str = '  ' . 'あ' . '  ';
 is(mime_eco($str, 'UTF-8', undef, undef, undef, 0), '=?UTF-8?B?ICDjgYIgIA==?=',
    '$lss=0 (UTF-8)');
-from_to($str, 'UTF-8', '7bit-jis');
-is(mime_eco($str, 'ISO-2022-JP', undef, undef, undef, 0),
+is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP',
+	    undef, undef, undef, 0),
    '=?ISO-2022-JP?B?ICAbJEIkIhsoQiAg?=', '$lss=0 (ISO-2022-JP)');
 
 
@@ -76,8 +78,7 @@ is(mime_eco($str, 'UTF-8'),
    "  Subject:  Re:  [XXXX 0123]  Re:  =?UTF-8?B?44KiYSAg44KkaSAg44KmdQ==?=" .
    " \n A-I-U\n",
    'SP SP ASCII non-ASCII . "\n" (UTF-8)');
-from_to($str, 'UTF-8', '7bit-jis');
-is(mime_eco($str, 'ISO-2022-JP'),
+is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP'),
    "  Subject:  Re:  [XXXX 0123]  Re:  =?ISO-2022-JP?B?GyRCJSIbKEJhICA=?=" .
    "\n =?ISO-2022-JP?B?GyRCJSQbKEJpICAbJEIlJhsoQnU=?=  A-I-U\n",
    'SP SP ASCII non-ASCII . "\n" (ISO-2022-JP)');
@@ -89,8 +90,7 @@ is(mime_eco($str, 'UTF-8'),
    "=?UTF-8?B?44GC44GE44GG44GI44GKIOOCouOCpOOCpuOCqOOCqiDvvbHvvbI=?=\n" .
    " =?UTF-8?B?772z77207721?= A-I-U-E-O",
    'ASCII non-ASCII HankakuKana (UTF-8)');
-from_to($str, 'UTF-8', '7bit-jis');
-is(mime_eco($str, 'ISO-2022-JP'),
+is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP'),
    "Subject: " .
    "=?ISO-2022-JP?B?GyRCJCIkJCQmJCgkKhsoQiAbJEIlIiUkJSYlKCUqGyhCIA==?=\n" .
    " =?ISO-2022-JP?B?GyhJMTIzNDUbKEI=?= A-I-U-E-O",
@@ -101,8 +101,7 @@ $str = 'Subject: Re: あ A い I';
 is(mime_eco($str, 'UTF-8', "|\n", 17),
    "Subject: Re:|\n =?UTF-8?B?44GC?=|\n A|\n =?UTF-8?B?44GE?=|\n I",
    '$lf="|\n", $bpl=17 (UTF-8)');
-from_to($str, 'UTF-8', '7bit-jis');
-is(mime_eco($str, 'ISO-2022-JP', "|\n", 31),
+is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP', "|\n", 31),
    "Subject: Re:|\n =?ISO-2022-JP?B?GyRCJCIbKEI=?=|\n A|\n" .
    " =?ISO-2022-JP?B?GyRCJCQbKEI=?=|\n I",
    '$lf="|\n", $bpl=31 (ISO-2022-JP)');
@@ -114,8 +113,7 @@ is(mime_eco($str, 'UTF-8'),
    "Re: =?UTF-8?B?44GC?= A =?UTF-8?B?44GE?= I =?UTF-8?B?44GG?= U\n" .
    " =?UTF-8?B?44GI?= E =?UTF-8?B?44GK?= O",
    'ASCII non-ASCII (UTF-8)');
-from_to($str, 'UTF-8', '7bit-jis');
-is(mime_eco($str, 'ISO-2022-JP'),
+is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP'),
    "Subject: " .
    "Re: =?ISO-2022-JP?B?GyRCJCIbKEI=?= A =?ISO-2022-JP?B?GyRCJCQbKEI=?=\n" .
    " I =?ISO-2022-JP?B?GyRCJCYbKEI=?= U =?ISO-2022-JP?B?GyRCJCgbKEI=?= E\n" .
@@ -128,8 +126,7 @@ is(mime_eco($str, 'UTF-8'),
    "Subject:\t=?UTF-8?B?44Ki?= a\t=?UTF-8?B?44Kk?= i\t=?UTF-8?B?44Km?= u" .
    "\t\tA-I-U",
    'ASCII non-ASCII . "\t" (UTF-8)');
-from_to($str, 'UTF-8', '7bit-jis');
-is(mime_eco($str, 'ISO-2022-JP'),
+is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP'),
    "Subject:\t=?ISO-2022-JP?B?GyRCJSIbKEI=?= a" .
    "\t=?ISO-2022-JP?B?GyRCJSQbKEI=?= i\n" .
    "\t=?ISO-2022-JP?B?GyRCJSYbKEI=?= u\t\tA-I-U",
@@ -151,8 +148,7 @@ is(mime_eco($str, 'UTF-8'),
    $from . '  (=?UTF-8?B?5bKh5bSOIOahnA==?=' . "\n "
    . '=?UTF-8?B?5a2Q?=)',
    'structured header (UTF-8)');
-from_to($str, 'UTF-8', '7bit-jis');
-is(mime_eco($str, 'ISO-2022-JP'),
+is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP'),
    $from . '  (=?ISO-2022-JP?B?GyRCMiwbKEI=?=' . "\n "
    . '=?ISO-2022-JP?B?GyRCOmobKEIgGyRCOnk7UhsoQg==?=)',
    'structured header (ISO-2022-JP)');
@@ -164,8 +160,7 @@ is(mime_eco($str, 'UTF-8'),
    "\n" .
    ' (=?UTF-8?B?44GC?=))  (=?UTF-8?B?44GC?=  (=?UTF-8?B?44GC?=))    ',
    'comment in comment (UTF-8)');
-from_to($str, 'UTF-8', '7bit-jis');
-is(mime_eco($str, 'ISO-2022-JP'),
+is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP'),
    '    (=?ISO-2022-JP?B?GyRCJCIbKEI=?=)' .
    '  (((=?ISO-2022-JP?B?GyRCJCIbKEI=?=))) ' .
    "\n" .
@@ -196,21 +191,55 @@ is(mime_eco($str, 'ISO-8859-1'), 'Subject: =?ISO-8859-1?B?R3L832U=?=',
 is(mime_eco($str, 'ISO-8859-1?Q'), 'Subject: =?ISO-8859-1?Q?Gr=FC=DFe?=',
    'ISO-8859-1?Q');
 
+
 $str = 'Subject:' . " Hello \x47\x72\xfc\xdf\x65" x 3;
-is(mime_eco($str, 'ISO-8859-15?Q'),
+$encoded = mime_eco($str, 'ISO-8859-15?Q');
+is($encoded,
    'Subject: Hello =?ISO-8859-15?Q?Gr=FC=DFe?= Hello ' .
    '=?ISO-8859-15?Q?Gr=FC=DFe?=' . "\n" .
    ' Hello =?ISO-8859-15?Q?Gr=FC=DFe?=',
    'ISO-8859-15?Q');
 
+is(mime_deco($encoded), $str, 'ISO-8859-15?Q (decode)');
+
+
 $str = 'Subject: ' . "\xe4\xbd\xa0\xe5\xa5\xbd\xe3\x80\x82";
-from_to($str, 'UTF-8', 'euc-cn');
-is(mime_eco($str, 'GB2312'), 'Subject: =?GB2312?B?xOO6w6Gj?=', 'GB2312');
+$encoded = mime_eco(encode('euc-cn', decode_utf8($str)), 'GB2312');
+is($encoded, 'Subject: =?GB2312?B?xOO6w6Gj?=', 'GB2312');
+
+is(encode_utf8(decode('euc-cn', mime_deco($encoded))),
+   $str, 'GB2312 (decode)');
+
 
 $str = 'Subject: ' . "\xbe\xc8\xb3\xe7\xc7\xcf\xbd\xca\xb4\xcf\xb1\xee\x3f";
-is(mime_eco($str, 'EUC-KR'), 'Subject: =?EUC-KR?B?vsiz58fPvcq0z7HuPw==?=',
-   'EUC-KR');
+$encoded = mime_eco($str, 'EUC-KR');
+is($encoded, 'Subject: =?EUC-KR?B?vsiz58fPvcq0z7HuPw==?=', 'EUC-KR');
+
+is(mime_deco($encoded), $str, 'EUC-KR (decode)');
+
 
 $str = 'Subject: ' . "\xe4\xbd\xa0\xe5\xa5\xbd\xe3\x80\x82";
-from_to($str, 'UTF-8', 'big5');
-is(mime_eco($str, 'Big5'), 'Subject: =?Big5?B?p0GmbqFD?=', 'Big5');
+$encoded = mime_eco(encode('big5', decode_utf8($str)), 'Big5');
+is($encoded, 'Subject: =?Big5?B?p0GmbqFD?=', 'Big5');
+
+is(encode_utf8(decode('big5', mime_deco($encoded))),
+   $str, 'Big5 (decode)');
+
+
+$str = "From: Sakura <sakura\@example.jp> (\xe6\xa1\x9c)";
+is(mime_eco($str, 'UTF-8*ja-JP?Q'),
+   'From: Sakura <sakura@example.jp> (=?UTF-8*ja-JP?Q?=E6=A1=9C?=)',
+   'RFC2231\'s language');
+
+$str = "Subject: Sakura (\xe6\xa1\x9c)"
+    . " Hello (\xe4\xbd\xa0\xe5\xa5\xbd\xe3\x80\x82)";
+$encoded = "Subject: Sakura =?ISO-2022-JP*ja?B?KBskQjp5GyhCKQ==?="
+    . " Hello =?GB2312?B?KMTjusOhoyk=?=";
+
+is(mime_deco($encoded, \&cb), $str, 'decode (multiple charsets)');
+
+
+sub cb {
+    my ($encoded_word, $charset, $language, $decoded_word) = @_;
+    encode_utf8(decode($charset, $decoded_word));
+}
