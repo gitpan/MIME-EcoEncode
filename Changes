@@ -1,5 +1,8 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.81  2012-02-14
+	- Fixed bug : "B" encoding of UTF-8
+
 0.80  2012-02-02
 	- Added subroutine mime_deco()
 	- Added support RFC2231's language

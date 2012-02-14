@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 49;
+use Test::More tests => 51;
 #use Test::More 'no_plan';
 BEGIN { use_ok('MIME::EcoEncode') };
 
@@ -168,6 +168,19 @@ is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP'),
    "\n" .
    ' (=?ISO-2022-JP?B?GyRCJCIbKEI=?=  (=?ISO-2022-JP?B?GyRCJCIbKEI=?=))    ',
    'comment in comment (ISO-2022-JP)');
+
+
+$str = 'From: Sakura <sakura@example.jp> (桜桜 (岡崎))';
+is(mime_eco($str),
+   'From: Sakura <sakura@example.jp> (=?UTF-8?B?5qGc5qGc?= (=?UTF-8?B?5bKh?=' .
+   "\n" .
+   ' =?UTF-8?B?5bSO?=))',
+   'comment in comment (2) (UTF-8)');
+is(mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP'),
+   'From: Sakura <sakura@example.jp> (=?ISO-2022-JP?B?GyRCOnk6eRsoQg==?=' .
+   "\n" .
+   ' (=?ISO-2022-JP?B?GyRCMiw6ahsoQg==?=))',
+   'comment in comment (2) (ISO-2022-JP)');
 
 
 $str = 'From: A B <ab@example.jp> ' . "(\xa9"

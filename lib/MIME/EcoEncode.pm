@@ -9,7 +9,7 @@ require Exporter;
 our @ISA = qw(Exporter);
 our @EXPORT_OK = qw($VERSION);
 our @EXPORT = qw(mime_eco mime_deco);
-our $VERSION = '0.80';
+our $VERSION = '0.81';
 
 use MIME::Base64;
 use MIME::QuotedPrint;
@@ -505,6 +505,7 @@ sub add_ew_b {
 	my $w = $1;
 	utf8::encode($w) if $UTF8; # UTF8 flag off
 	$$ep = int((length($w) + 2) / 3) * 4 + $HTL + 1; # 1 is space
+	utf8::encode($str) if $UTF8; # UTF8 flag off
 	$result = ($str eq '') ? ' ' :
 	    $HEAD . encode_base64($str, '') . TAIL . "$LF ";
 	return $result . $HEAD . encode_base64($w, '') . TAIL;
@@ -835,7 +836,7 @@ Ex2's output:
 Ex3 - continuous spaces
 
   use MIME::EcoEncode;
-  $str = "From: Sakura  <sakura\@example.jp>    (\xe6\xa1\x9c)\n";
+  my $str = "From: Sakura  <sakura\@example.jp>    (\xe6\xa1\x9c)\n";
   print mime_eco($str);
 
 Ex3's output:
@@ -845,7 +846,7 @@ Ex3's output:
 Ex4 - unstructured header (1)
 
   use MIME::EcoEncode;
-  $str = "Subject: Sakura (\xe6\xa1\x9c)\n";
+  my $str = "Subject: Sakura (\xe6\xa1\x9c)\n";
   print mime_eco($str);
 
 Ex4's output:
@@ -855,7 +856,7 @@ Ex4's output:
 Ex5 - unstructured header (2)
 
   use MIME::EcoEncode;
-  $str = "Subject: \xe6\xa1\x9c  Sakura\n";
+  my $str = "Subject: \xe6\xa1\x9c  Sakura\n";
   print mime_eco($str);
 
 Ex5's output:
@@ -866,7 +867,7 @@ Ex6 - 7bit-jis string
 
   use Encode;
   use MIME::EcoEncode;
-  $str = "Subject: \xe6\xa1\x9c  Sakura\n";
+  my $str = "Subject: \xe6\xa1\x9c  Sakura\n";
   print mime_eco(encode('7bit-jis', decode_utf8($str)), 'ISO-2022-JP');
 
 Ex6's output:
