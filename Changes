@@ -1,5 +1,9 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.82  2012-10-17
+	- Fixed bug : in the case only of ASCII character string
+	  Thank you, SASAO-Sama
+
 0.81  2012-02-14
 	- Fixed bug : "B" encoding of UTF-8
 

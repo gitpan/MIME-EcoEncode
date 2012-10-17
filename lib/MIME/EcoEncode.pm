@@ -9,7 +9,7 @@ require Exporter;
 our @ISA = qw(Exporter);
 our @EXPORT_OK = qw($VERSION);
 our @EXPORT = qw(mime_eco mime_deco);
-our $VERSION = '0.81';
+our $VERSION = '0.82';
 
 use MIME::Base64;
 use MIME::QuotedPrint;
@@ -99,7 +99,7 @@ sub mime_eco {
     $str =~ /(\s*)(\S+)/gc;
     ($sps, $w2) = ($1, $2);
 
-    if ($w2 =~ /[^21-\x7e]/) {
+    if ($w2 =~ /[^\x21-\x7e]/) {
 	$ascii = 0;
 	$sps_len = length($sps);
 	if ($sps_len > $lss) {

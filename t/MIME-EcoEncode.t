@@ -15,11 +15,11 @@ use MIME::EcoEncode;
 my $str;
 my $encoded;
 
-$str = 'test';
+$str = 'test0';
 is(mime_eco($str, 'UTF-8'), $str, 'ASCII (UTF-8)');
 is(mime_eco($str, 'ISO-2022-JP'), $str, 'ASCII (ISO-2022-JP)');
 
-$str = "test\n";
+$str = "test0\n";
 is(mime_eco($str, 'UTF-8'), $str, 'ASCII . "\n" (UTF-8)');
 is(mime_eco($str, 'ISO-2022-JP'), $str, 'ASCII . "\n" (ISO-2022-JP)');
 
