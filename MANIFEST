@@ -5,3 +5,4 @@ MANIFEST			This list of files
 META.yml
 README
 t/MIME-EcoEncode.t
+META.json                                Module JSON meta-data (added by MakeMaker)

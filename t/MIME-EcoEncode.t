@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 51;
+use Test::More tests => 57;
 #use Test::More 'no_plan';
 BEGIN { use_ok('MIME::EcoEncode') };
 
@@ -251,8 +251,44 @@ $encoded = "Subject: Sakura =?ISO-2022-JP*ja?B?KBskQjp5GyhCKQ==?="
 
 is(mime_deco($encoded, \&cb), $str, 'decode (multiple charsets)');
 
-
 sub cb {
     my ($encoded_word, $charset, $language, $decoded_word) = @_;
     encode_utf8(decode($charset, $decoded_word));
 }
+
+
+$str = "Subject: あ\tあ";
+is(mime_eco($str, 'UTF-8?Q'),
+   'Subject: =?UTF-8?Q?=E3=81=82=09=E3=81=82?=', 'UTF-8?Q + TAB');
+
+
+$str = "Subject: あ ) (あ";
+$encoded = mime_eco($str, 'UTF-8?Q');
+is(mime_deco($encoded), $str, 'UTF-8?Q + parenthesis');
+
+
+my $str_j;
+
+$str = 'Subject: AあIいUうEえOお a AあIいU e';
+$str_j = encode('7bit-jis', decode_utf8($str));
+$encoded = mime_eco($str_j, 'ISO-2022-JP');
+is($encoded,
+   "Subject: " .
+   "=?ISO-2022-JP?B?QRskQiQiGyhCSRskQiQkGyhCVRskQiQmGyhCRRskQiQoGyhC?=\n" .
+   " =?ISO-2022-JP?B?TxskQiQqGyhC?= a " .
+   "=?ISO-2022-JP?B?QRskQiQiGyhCSRskQiQkGyhC?=\n" .
+   " =?ISO-2022-JP?B?VQ==?= e",
+   'ISO-2022-JP encode + folding 1');
+
+is(mime_deco($encoded), $str_j, 'ISO-2022-JP decode + folding 1');
+
+$str = 'Subject: aあaあaあaあ  ';
+$str_j = encode('7bit-jis', decode_utf8($str));
+$encoded = mime_eco($str_j, 'ISO-2022-JP');
+is($encoded,
+   "Subject: " .
+   "=?ISO-2022-JP?B?YRskQiQiGyhCYRskQiQiGyhCYRskQiQiGyhCYQ==?=\n" .
+   " =?ISO-2022-JP?B?GyRCJCIbKEI=?=  ",
+   'ISO-2022-JP encode + folding 2');
+
+is(mime_deco($encoded), $str_j, 'ISO-2022-JP decode + folding 2');

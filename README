@@ -1,4 +1,4 @@
-MIME-EcoEncode version 0.82
+MIME-EcoEncode version 0.90
 ===========================
 
 INSTALLATION
@@ -12,7 +12,7 @@ To install this module type the following:
 
 COPYRIGHT AND LICENCE
 
-Copyright (C) 2011-2012 MURATA Yasuhisa
+Copyright (C) 2011-2013 MURATA Yasuhisa
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.

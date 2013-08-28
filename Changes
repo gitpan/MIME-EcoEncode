@@ -1,5 +1,12 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.90  2013-08-28
+	- Fixed bug : "B" encoding of ISO-2022-JP
+	- Fixed bug : "Q" encoding (in the case of TAB is contained, etc.)
+	- Fixed bug : "Q" decoding (in the case of parenthesis is contained.)
+	- Added code to remove redundant ESC sequences in ISO-2022-JP
+	- Added code to return array in mime_deco()
+
 0.82  2012-10-17
 	- Fixed bug : in the case only of ASCII character string
 	  Thank you, SASAO-Sama
