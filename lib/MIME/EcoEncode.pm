@@ -9,7 +9,7 @@ require Exporter;
 our @ISA = qw(Exporter);
 our @EXPORT_OK = qw($VERSION);
 our @EXPORT = qw(mime_eco mime_deco);
-our $VERSION = '0.90';
+our $VERSION = '0.91';
 
 use MIME::Base64;
 use MIME::QuotedPrint;
@@ -358,7 +358,7 @@ sub add_ew_j {
 
     my $k_in = 0; # ascii: 0, zen: 1 or 2, han: 9
     my $k_in_bak = 0;
-    my ($ec, $c, $ee, $cl);
+    my ($ec, $c, $cl);
     my $ec_bak = '';
     my ($w, $w_len) = ('', 0);
     my ($chunk, $chunk_len) = ('', 0);
@@ -367,6 +367,8 @@ sub add_ew_j {
     my $str_pos;
     my $str_len = length($str);
     my $ll_flag = 0;
+    my $ee = 0; # end ESC length (0 or 3)
+    my $str_len_ee = $str_len;
 
     # encoded size + sp
     my $ep_v = int(($str_len + 2) / 3) * 4 + $HTL + $sp;
@@ -376,8 +378,12 @@ sub add_ew_j {
 	return $HEAD . encode_base64($str, '') . TAIL;
     }
     $ll_flag = 1 if $ep_v <= $BPL;
-    while ($str =~ /\e(..)|(.)(\e\(B)?/g) {
-	($ec, $c, $ee) = ($1, $2, $3);
+    if ($str =~ s/\e\(B$//) {
+	$ee = 3;
+	$str_len_ee -= 3;
+    }
+    while ($str =~ /\e(..)|(.)/g) {
+	($ec, $c) = ($1, $2);
 	if (defined $ec) {
 	    $ec_bak = $ec;
 	    $w .= "\e$ec";
@@ -413,11 +419,6 @@ sub add_ew_j {
                 $w_len++;
 	    }
 	}
-	if (defined $ee) {
-	    $w .= $ee;
-	    $w_len += 3;
-	    $k_in = 0;
-	}
 
 	# encoded size (3 is "\e\(B")
 	$enc_len =
@@ -428,10 +429,18 @@ sub add_ew_j {
 		$result = ' ';
             }
             else {
-		if ($k_in_bak and $w !~ /^\e/) {
+		if ($k_in_bak) {
 		    $chunk .= "\e\(B";
-		    $w = "\e$ec_bak" . $w;
-		    $w_len += 3;
+		    if ($k_in) {
+			if ($k_in_bak == $k_in) {
+			    $w = "\e$ec_bak" . $w;
+			    $w_len += 3;
+			}
+		    }
+		    else {
+			$w = $c;
+                        $w_len = 1;
+		    }
 		}
                 $result .= $HEAD . encode_base64($chunk, '') . TAIL . "$LF ";
             }
@@ -443,6 +452,7 @@ sub add_ew_j {
 
 	    if ($ep_v + $rll <= $BPL) {
 		$chunk = $w . substr($str, $str_pos);
+		$chunk .= "\e\(B" if $ee;
 		last;
 	    }
 	    $ll_flag = 1 if $ep_v <= $BPL;
@@ -451,18 +461,30 @@ sub add_ew_j {
             $sp = 1; # 1 is top space
         }
         else {
-	    if ($ll_flag and pos($str) == $str_len) { # last char
+	    if ($ll_flag and pos($str) == $str_len_ee) { # last char
 		if ($chunk_len == 0) { # size over at the first time
 		    $result = ' ';
 		}
 		else {
-		    if ($k_in_bak and $w !~ /^\e/) {
+		    if ($k_in_bak) {
 			$chunk .= "\e\(B";
-			$w = "\e$ec_bak" . $w;
-			$w_len += 3;
+			if ($k_in) {
+			    if ($k_in_bak == $k_in) {
+				$w = "\e$ec_bak" . $w;
+				$w_len += 3;
+			    }
+			}
+			else {
+			    $w = $c;
+			    $w_len = 1;
+			}
 		    }
 		    $result .=$HEAD
 			. encode_base64($chunk, '') . TAIL . "$LF ";
+		}
+		if ($ee) {
+		    $w .= "\e\(B";
+		    $w_len += 3;
 		}
 		$ep_v = int(($w_len + 2) / 3) * 4 + $HTL + 1; # 1 is space
 		$chunk = $w;

@@ -1,9 +1,14 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.91  2013-08-29
+	- Fixed bug : "B" encoding of ISO-2022-JP
+	  (in the case of Hankaku-Katakana is contained)
+	- Improved performance
+
 0.90  2013-08-28
 	- Fixed bug : "B" encoding of ISO-2022-JP
 	- Fixed bug : "Q" encoding (in the case of TAB is contained, etc.)
-	- Fixed bug : "Q" decoding (in the case of parenthesis is contained.)
+	- Fixed bug : "Q" decoding (in the case of parenthesis is contained)
 	- Added code to remove redundant ESC sequences in ISO-2022-JP
 	- Added code to return array in mime_deco()
 

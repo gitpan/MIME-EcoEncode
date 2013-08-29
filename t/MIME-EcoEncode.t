@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 57;
+use Test::More tests => 59;
 #use Test::More 'no_plan';
 BEGIN { use_ok('MIME::EcoEncode') };
 
@@ -292,3 +292,15 @@ is($encoded,
    'ISO-2022-JP encode + folding 2');
 
 is(mime_deco($encoded), $str_j, 'ISO-2022-JP decode + folding 2');
+
+
+$str = 'Subject: ｱあ000000ｱｱあｱあ';
+$str_j = encode('7bit-jis', decode_utf8($str));
+$encoded = mime_eco($str_j, 'ISO-2022-JP');
+is($encoded,
+   "Subject: " .
+   "=?ISO-2022-JP?B?GyhJMRskQiQiGyhCMDAwMDAwGyhJMTEbJEIkIhsoSTEbKEI=?=\n" .
+   " =?ISO-2022-JP?B?GyRCJCIbKEI=?=",
+   'ISO-2022-JP encode + folding 3');
+
+is(mime_deco($encoded), $str_j, 'ISO-2022-JP decode + folding 3');
