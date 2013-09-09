@@ -9,7 +9,7 @@ require Exporter;
 our @ISA = qw(Exporter);
 our @EXPORT_OK = qw($VERSION);
 our @EXPORT = qw(mime_eco mime_deco);
-our $VERSION = '0.91';
+our $VERSION = '0.92';
 
 use MIME::Base64;
 use MIME::QuotedPrint;
@@ -164,7 +164,11 @@ sub mime_eco {
                     }
 		}
 		if ($sps_len <= $lss) {
-		    if ($pos + $sps_len - 1 > $BPL) {
+		    if ($pos >= $BPL) {
+			$result .= $LF . $sps;
+			$pos = $sps_len - 1;
+		    }
+		    elsif ($pos + $sps_len - 1 > $BPL) {
 			$result .= substr($sps, 0, $BPL - $pos) . $LF
 			    . substr($sps, $BPL - $pos);
 			$pos += $sps_len - $BPL - 1;

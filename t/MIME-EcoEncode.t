@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 59;
+use Test::More tests => 60;
 #use Test::More 'no_plan';
 BEGIN { use_ok('MIME::EcoEncode') };
 
@@ -304,3 +304,10 @@ is($encoded,
    'ISO-2022-JP encode + folding 3');
 
 is(mime_deco($encoded), $str_j, 'ISO-2022-JP decode + folding 3');
+
+
+$str = "Subject:" . ' ' x 200 . 'a   あ';
+$encoded = mime_eco($str);
+is($encoded,
+   "Subject:" . ' ' x 200 . "a\n" . '   =?UTF-8?B?44GC?=',
+   'very long whitespace');

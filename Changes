@@ -1,5 +1,9 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.92  2013-09-09
+	- Fixed bug : mime_deco()
+	  (in the case of very long whitespace is contained)
+
 0.91  2013-08-29
 	- Fixed bug : "B" encoding of ISO-2022-JP
 	  (in the case of Hankaku-Katakana is contained)
