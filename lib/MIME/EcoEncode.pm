@@ -9,7 +9,7 @@ require Exporter;
 our @ISA = qw(Exporter);
 our @EXPORT_OK = qw($VERSION);
 our @EXPORT = qw(mime_eco mime_deco);
-our $VERSION = '0.92';
+our $VERSION = '0.93';
 
 use MIME::Base64;
 use MIME::QuotedPrint;
@@ -381,6 +381,11 @@ sub add_ew_j {
 	$$ep = $ep_v;
 	return $HEAD . encode_base64($str, '') . TAIL;
     }
+
+    my $max_len  = int(($BPL - $HTL - $sp) / 4) * 3;
+    my $max_len2 = int(($BPL - $HTL - 1) / 4) * 3;
+    my $kv;
+
     $ll_flag = 1 if $ep_v <= $BPL;
     if ($str =~ s/\e\(B$//) {
 	$ee = 3;
@@ -423,12 +428,8 @@ sub add_ew_j {
                 $w_len++;
 	    }
 	}
-
-	# encoded size (3 is "\e\(B")
-	$enc_len =
-	    int(($chunk_len + $w_len + ($k_in ? 3 : 0) + 2) / 3) * 4 + $HTL;
-
-	if ($sp + $enc_len > $BPL) {
+	$kv = $k_in ? 3 : 0; # 3 is "\e\(B"
+	if ($chunk_len + $w_len + $kv > $max_len) {
             if ($chunk_len == 0) { # size over at the first time
 		$result = ' ';
             }
@@ -463,6 +464,7 @@ sub add_ew_j {
             $chunk = $w;
             $chunk_len = $w_len;
             $sp = 1; # 1 is top space
+	    $max_len = $max_len2;
         }
         else {
 	    if ($ll_flag and pos($str) == $str_len_ee) { # last char
@@ -521,7 +523,6 @@ sub add_ew_b {
 
     my ($chunk, $chunk_len) = ('', 0);
     my $w_len;
-    my $enc_len;
     my $result = '';
     my $str_pos = 0;
     my $str_len = length($str);
@@ -547,15 +548,15 @@ sub add_ew_b {
 	return $result . $HEAD . encode_base64($w, '') . TAIL;
     }
 
+    my $max_len  = int(($BPL - $HTL - $sp) / 4) * 3;
+    my $max_len2 = int(($BPL - $HTL - 1) / 4) * 3;
+
     while ($str =~ /$REG_W/g) {
 	my $w = $1;
 	utf8::encode($w) if $UTF8; # UTF8 flag off
 	$w_len = length($w); # size of one character
 
-	# encoded size
-	$enc_len = int(($chunk_len + $w_len + 2) / 3) * 4 + $HTL;
-
-	if ($sp + $enc_len > $BPL) {
+	if ($chunk_len + $w_len > $max_len) {
 	    if ($chunk_len == 0) { # size over at the first time
 		$result = ' ';
 	    }
@@ -586,6 +587,7 @@ sub add_ew_b {
 	    $chunk = $w;
 	    $chunk_len = $w_len;
 	    $sp = 1; # 1 is top space
+	    $max_len = $max_len2;
 	}
 	else {
 	    $chunk .= $w;
