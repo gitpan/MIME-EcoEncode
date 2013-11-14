@@ -1,5 +1,13 @@
 Revision history for Perl extension MIME::EcoEncode.
 
+0.95  2013-11-14
+	- Improved performance
+	- Added sub modules:
+	    MIME::EcoEncode::Param, MIME::EcoEncode::Fold
+	- Added support "Q" encoding of ISO-2022-JP
+	- Added support Shift_JIS charset
+	- Corrected the handling of CRLF of the end
+
 0.93  2013-09-27
 	- Improved performance : mime_eco()
 
